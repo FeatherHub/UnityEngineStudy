@@ -1,0 +1,510 @@
+부팅 흐름 개요 (플레이어 빌드 기준)
+
+1
+네이티브 저수준 시스템 초기화
+윈도우(창), 그래픽스, 어셈블리 로드
+여기서 스크립팅 VM(Mono 또는 IL2CPP, C# 코드를 실행하는 런타임)도 뜹니다
+
+2
+SubsystemRegistration → AfterAssembliesLoaded 콜백 실행 
+(XR 같은 서브시스템 등록 용도)
+
+3
+추가 셋업 (입력 시스템 등)
+
+4
+BeforeSplashScreen 콜백 → 스플래시 화면 표시
+
+5
+첫 씬 로드 시작 → BeforeSceneLoad 콜백
+오브젝트는 메모리에 있지만 Awake 전, 전부 비활성 취급
+
+6
+Awake / OnEnable 실행
+
+7
+AfterSceneLoad 콜백
+
+8
+이후 PlayerLoop(엔진 메인 루프)에 진입해 매 프레임 반복. 
+Start()는 첫 프레임 루프 안의 ScriptRunDelayedStartupFrame 단계에서 호출
+
+---
+
+같은 단계 안에서의 실행 순서는 보장되지 않는다
+
+---
+
+부팅의 주도권은 네이티브, C#은 호출당하는 쪽
+
+[RequiredByNativeCode](네이티브 C++가 이 C# 코드를 직접 찾아 호출한다는 표식)
+
+---
+
+RuntimeInitializeOnLoadManager
+C# 껍데기
+
+실제 관리자는 네이티브에 있고(GetRuntimeInitializeOnLoadManager()로 접근)
+어떤 메서드를 부를지는 런타임 리플렉션 스캔이 아니라 빌드 타임에 추출
+
+---
+
+Build PlayerData Extractor :: Extract PlayerRuntimeInitialize OnLoadMethods
+
+컴파일 결과에서 뽑은 RuntimeInitializeOnLoads.json을 빌드 데이터에 복사
+부팅 시 네이티브가 이걸 읽어 호출
+
+---
+
+PlayerLoop 쪽에서는 최상위 8개 페이즈
+
+TimeUpdate
+Initialization
+
+EarlyUpdate
+FixedUpdate
+
+PreUpdate
+Update
+PreLateUpdate
+PostLateUpdate
+
+---
+
+에디터 부팅
+
+EditorAssemblies::SetLoadedEditorAssemblies
+EditorAssemblies::ProcessInitializeOnLoadAttributes를 호출
+
+[InitializeOnLoad] 클래스들의 static 생성자를 실행
+
+---
+---
+---
+
+1. TimeUpdate
+프레임의 시작
+
+WaitForLastPresentationAndUpdateTime
+
+이전 프레임이 화면에 표시(present)되기를 기다린 뒤 
+Time.time / deltaTime을 갱신합니다
+
+VSync 대기 시간이 여기에 잡히는 이유
+
+---
+
+2. Initialization
+
+프로파일러 프레임 시작
+
+카메라 모션 벡터, 
+Director(Timeline 재생 시스템) 시간 샘플링, 
+비동기 업로드, 
+입력 상태 동기화(SynchronizeInputs/State), 
+XREarlyUpdate
+
+---
+
+3. EarlyUpdate
+
+UnityWebRequest 처리, 
+메인스레드 잡 실행, 
+에셋 스트리밍/프리로딩 갱신, 
+구 Input Manager 갱신
+
+핵심 슬롯은 ScriptRunDelayedStartupFrame 직전에 활성화된 오브젝트들의 Start()가 여기서 호출
+
+부팅 때 본 "첫 프레임에 Start 실행"의 실체
+
+---
+
+4. FixedUpdate
+고정 시간 스텝 구간
+
+시뮬레이션 시간이 실제 시간을 따라잡을 때까지 
+한 프레임에 0~N회 반복됩니다
+
+ScriptRunBehaviourFixedUpdate(MonoBehaviour.FixedUpdate)
+Director/애니메이션 fixed 갱신
+PhysicsFixedUpdate(3D 물리 시뮬레이션 스텝) → Physics2D → Cloth → ScriptRunDelayedFixedFrameRate(WaitForFixedUpdate 코루틴 재개)
+
+즉 내 FixedUpdate 코드가 물리 스텝보다 먼저 돌아서, 힘을 가한 뒤 시뮬레이션되는 구조
+OnCollision/OnTrigger류는 물리 스텝 내부(네이티브)에서 호출
+
+---
+
+5. PreUpdate
+
+PhysicsUpdate(보간된 Transform 동기화 등 물리 후처리), 
+새 Input System 갱신(NewInputUpdate), 
+SendMouseEvents(OnMouseDown/Enter류 발송), 
+AIUpdate(NavMesh), 
+비디오 갱신
+
+---
+
+6. Update
+
+ScriptRunBehaviourUpdate(MonoBehaviour.Update)
+ScriptRunDelayedDynamicFrameRate(yield return null / WaitForSeconds 코루틴 재개 — 코루틴이 "Update 다음"에 도는 지점) 
+→ ScriptRunDelayedTasks(async/await가 메인스레드로 돌아오는 UnitySynchronizationContext 연속 실행) 
+→ DirectorUpdate(Timeline)
+
+---
+
+7. PreLateUpdate 
+애니메이션의 페이즈
+
+DirectorUpdateAnimationBegin~End 사이에서 Animator 평가
+LegacyAnimationUpdate(구 Animation 컴포넌트)
+
+UI Toolkit 패널 업데이트
+파티클 시작
+그리고 마지막에 ScriptRunBehaviourLateUpdate(MonoBehaviour.LateUpdate)
+
+애니메이션 평가가 끝난 후에 LateUpdate가 오기 때문에 
+카메라 추적 코드를 LateUpdate에 두는 것
+
+---
+
+8. PostLateUpdate
+
+uGUI(RectTransform/캔버스), 
+오디오, VFX, 파티클 종료, 
+스킨드 메시, 
+UpdateAllRenderers
+
+실제 카메라 렌더링(SRP의 RenderPipelineManager 루프 포함)은 FinishFrameRendering 아래에서 실행
+
+UpdateCaptureScreenshot(스크린샷이 present 직전인 이유) 
+→ PresentAfterDraw(화면 제시) 
+→ InputEndFrame 
+→ TriggerEndOfFrameCallbacks(WaitForEndOfFrame 코루틴이 present 이후에 재개) 
+→ ProfilerEndFrame
+
+---
+---
+---
+
+유니티에서 스크립트란
+
+엔진 코드가 아니라, 
+VM(Mono 또는 IL2CPP — C# 실행 런타임) 위에 로드되는 
+사용자 어셈블리 클래스
+
+스크립트는 PlayerLoop의 ScriptRunBehaviourUpdate 같은 슬롯에서 "불려지는" 존재
+
+---
+
+MonoBehaviour
+
+네이티브 컴포넌트의 managed 쌍둥이
+
+GameObject/Component의 실체는 네이티브 쪽에 있고, 
+C# 객체는 핸들로 연결된 래퍼
+
+---
+
+Update/Start는 가상 함수가 아니라 이름 규약이고
+엔진이 로드 시점에 각 클래스에 해당 메서드가 있는지 스캔해서 있는 것만 호출 목록에 등록
+
+---
+
+한 프레임의 구조
+메인 스레드가 정해진 순서의 파이프라인을 돕니다
+
+Unity 루프는 이름 붙은 고정 슬롯들의 평평한 트리이고
+스크립트는 슬롯 안에서만 돕니다
+
+UE는 FTickFunction마다 prerequisite(선행 조건)를 걸 수 있는 의존성 그래프라서 
+순서가 데이터로 기술되고 Task Graph에서 병렬 실행될 수 있습니다
+
+---
+
+Unity는 고정 스텝 따라잡기 루프(FixedUpdate×N)가 기본
+UE는 가변 델타에 물리 substepping이 옵션
+
+---
+
+UE는 게임/렌더/RHI 스레드 파이프라인이 구조 자체에 드러나는 반면
+Unity도 내부에 렌더 스레드와 그래픽스 잡이 있지만 
+PlayerLoop 표면에는 메인 스레드 관점의 순차 목록으로만 보입니다
+
+---
+---
+---
+
+IL2CPP
+
+플랫폼의 C++ 컴파일러로 기계어까지 미리 컴파일(AOT)
+GC 등 런타임 서비스를 제공하는 libil2cpp를 링크
+
+iOS는 보안상 JIT를 금지하고
+WebGL은 JIT가 불가능
+콘솔들도 제약이 많기 때문
+
+---
+
+C# 런타임
+
+IL→기계어 변환(JIT 또는 AOT)
+GC
+어셈블리 로딩
+네이티브 코드와의 interop(P/Invoke)
+
+---
+
+어셈블리
+
+.NET에서 코드의 배포·버전 관리 단위
+실체는 .dll 파일
+
+IL 코드 + 타입 메타데이터 + 매니페스트(자기 자신과 의존성에 대한 목록)
+
+타입·메타데이터·리소스를 하나의 단위로 조립(assemble)했다는 의미
+
+---
+
+Unity 맥락에서는, 내 스크립트는 기본적으로 Assembly-CSharp.dll 하나로 컴파일되고, 
+
+asmdef 파일로 여러 어셈블리로 쪼갤 수 있으며
+(컴파일 단위 = 재컴파일 범위이므로 이터레이션 속도에 직결)
+
+부팅 때 ScriptingRuntime::GetAllUserAssemblies처럼 
+네이티브 엔진이 "어떤 어셈블리들을 VM에 로드할지" 목록으로 관리하는 대상
+
+---
+
+Object → Component → Behaviour → MonoBehaviour
+
+Behaviour는 "켜고 끌 수 있는(enabled) 컴포넌트"라는 네이티브 개념
+Camera, Light 같은 내장 컴포넌트도 Behaviour
+
+MonoBehaviour는 그중 로직이 Mono 런타임 쪽(managed 세계)에 있는 Behaviour라는 뜻
+언어가 아니라 런타임의 이름을 딴 것
+
+실제로 초기 Unity는 C# 외에 UnityScript, Boo까지 세 언어를 지원했는데 
+전부 IL로 컴파일되어 Mono에서 돌았으니, 
+"CSharpBehaviour"가 아니라 "MonoBehaviour"가 정확한 작명
+
+---
+
+GameObject/MonoBehaviour 모델
+캐시 비친화적
+
+managed 힙에 흩어진 객체를 참조로 따라다니고,
+MonoBehaviour마다 Update 호출 한 번에 네이티브 → managed 경계를 넘으며
+(Unity가 공식 블로그에서 "Update 1만 개의 비용"으로 인정한 문제)
+
+transform.position 읽기 한 번도 경계 너머 호출
+
+그래서 API들이 점점 배치(batch) 지향으로 바뀌어 온 겁니다
+(TransformAccessArray처럼 한 번에 몰아서 처리)
+
+---
+
+[NativeHeader], [FreeFunction]
+extern
+
+internal call
+
+Unity의 바인딩 생성기가 엔진 빌드 시 
+C# ↔ C++ 글루 코드를 만들어 VM에 등록
+
+transform.position 한 번 읽는 것도 경계 호출
+살짝 비싼 함수 호출
+크로싱 하나는 수십 ns 수준인데 ×10,000이 되면 보이기 시작
+
+---
+
+Mono VM
+Unity 프로세스에 로드되는 라이브러리
+
+메인 스레드가 PlayerLoop을 돌다 ScriptRunBehaviourUpdate 슬롯에 도달하면, 
+그 메인 스레드가 managed 코드로 들어가 Update()를 실행하고, 
+리턴하면 다시 네이티브 루프로 돌아옵니다
+
+콜스택 하나에 C++ 프레임과 C# 프레임이 번갈아 쌓입니다
+
+---
+
+C++이 C#을 호출하는 게 어떻게 가능한가
+
+기계어 수준의 호출이란, 인자를 약속된 위치(레지스터/스택)에 놓고, 
+어떤 주소로 점프하고, 돌아올 주소를 스택에 남기는 것
+
+CPU에게는 언어가 없습니다
+그 주소에 있는 기계어가 원래 C++이었는지 C#이었는지는 흔적조차 남지 않아요
+
+---
+
+C++은 C# 메서드의 '점프할 주소'를 어떻게 얻는가?
+
+런타임이 C 라이브러리라는 것
+VM은 임베딩 API라는 C 함수들을 노출하고, 엔진은 그걸로 부탁합니다
+
+// il2cpp-api-functions.h — 이 함수가 C++ → C# 방향의 문
+
+DO_API (
+  Il2CppObject*, il2cpp_runtime_invoke,
+  (const MethodInfo* method, void* obj, void** params, Il2CppException** exc)
+)
+
+---
+
+// 엔진 내부 — PlayerLoop의 ScriptRunBehaviourUpdate 슬롯에서
+
+il2cpp_runtime_invoke(updateMethod, scriptInstance, nullptr, &exc);  // Update() 실행
+
+---
+
+첫 호출 시점에 해당 메서드가 아직 컴파일 전이면 
+JIT가 그 자리에서 기계어를 만들어 주소를 확정하고
+(트램폴린: 첫 점프 때 컴파일을 트리거하고 주소를 바꿔치기하는 스텁)
+
+이후로는 그냥 함수 포인터 호출
+
+---
+
+스레드마다 스택은 하나뿐이니
+네이티브 프레임 위에 managed 프레임이, 
+그 위에 다시 네이티브 프레임이
+
+---
+
+JIT가 뱉은 기계어는 C++ 컴파일러가 뱉은 기계어와 같은 종류
+CPU는 구분하지 않습니다
+
+JIT는 컴파일 시간 예산이 짧아 C++ -O2만큼 공격적으로 최적화하지 못하는 경우가 있고, 
+그 격차를 좁히려는 게 IL2CPP였고, 
+아예 뒤집은 게 Burst
+
+---
+
+C# 런타임 (=VM)
+
+어셈블리를 읽어 타입·메타데이터 데이터베이스를 세우는 로더, 
+
+실행 중에 작동하는 컴파일러(JIT), 
+그리고 서비스 (GC, 예외 처리, 리플렉션 조회, 스레드 등록, interop thunk 제작)
+
+---
+
+IL은 실존하지 않는 추상 스택 머신 (가상의 CPU 명령어 세트)을 겨냥해 쓰인 코드고, 
+C# 컴파일러는 그 상상의 기계를 목표로 컴파일
+
+런타임의 임무는 진짜 하드웨어가 그 상상의 기계처럼 행동하게 만드는 것
+
+한 줄씩 흉내 내기(인터프리터 — Mono에 실제로 이 모드도 있고, "VM"이라는 이미지의 역사적 기원)
+통째로 번역해두기(JIT/AOT — 현재의 기본)
+
+---
+
+C# 소스 → IL + 메타데이터 = 어셈블리
+
+Mono 경로: IL ─ (JIT, 실행 중·메서드 단위) → 메모리 실행 페이지의 기계어
+IL2CPP 경로: IL ─ (빌드 시) → C++ ─ (플랫폼 컴파일러) → 바이너리 속 기계어
+
+어느 경로든 최종 실행: CPU 
+
+---
+---
+---
+
+임베드 가능한 런타임
+
+프로세스의 주인이 될 필요 없이, 남의 프로세스에 세 들어 살도록 설계된 런타임
+
+보통의 .NET 앱은 런타임이 프로세스의 주인이고 여러분의 코드가 손님
+(dotnet이 main을 쥐고 시작)
+
+Unity는 관계가 뒤집혀 있죠
+C++ 엔진이 주인이고 Mono가 손님
+
+이게 가능하려면 런타임이 세 가지를 갖춰야 합니다
+
+라이브러리 형태로 로드될 것
+"VM 초기화해라 / 이 어셈블리 로드해라 / 이 메서드 호출해라"를 시킬 수 있는 API를 노출할 것
+자기가 main()과 메인 루프를 소유한다고 가정하지 않을 것
+
+Lua가 이 분야의 고전이고(C++ 게임에 스크립트 언어 끼워 넣기), 
+V8이 Chrome에 박혀 있는 것도 같은 패턴
+
+Mono는 .NET 구현체 중 이 "세입자 계약서"를 제대로 갖춘 유일한 존재였고, 
+그게 2005년 Unity의 선택 이유
+
+---
+
+Mono는 대부분 C로 구현
+libil2cpp처럼 C++로 구현된 런타임조차 바깥에는 C 규약의 API를 노출
+
+// il2cpp-api.h — C++로 짠 런타임이 문은 C로 낸다
+extern "C"
+{
+  #define DO_API(r, n, p)  IL2CPP_EXPORT r n p;
+  ...
+}
+
+---
+
+C++는 컴파일러마다 이름 장식(name mangling), vtable 배치, 예외 처리 방식이 달라서 
+컴파일러 경계를 넘는 표준 규약이 없습니다. 
+
+반면 C의 함수 호출 규약은 사실상 만국 공통어라, 
+"누가 만든 무엇이든 나를 호출할 수 있어야 하는" 라이브러리는 
+전부 extern "C"로 문을 냅니다
+Vulkan, SQLite, Python C API가 다 그렇습니다
+
+언리얼에 이런 문이 없는 이유도 이제 자명하죠
+게임 C++는 엔진과 같은 언어, 같은 컴파일러로 함께 빌드되어 직접 링크되니까 
+외국어용 출입문이 필요 없는 겁니다
+
+---
+
+런타임
+
+① 실행 시점(runtime vs compile time)
+② 어떤 언어를 실행시켜주는 지원 소프트웨어(the C# runtime = Mono)
+③ C 언어의 표준 지원 라이브러리인 CRT(C runtime — malloc, printf를 제공하는 층, 모든 네이티브 프로그램이 링크)
+
+런타임이 봉사하는 언어와 런타임이 만들어진 언어는 별개
+
+C#을 실행시켜주는 기계 장치가 C#으로만 쓰여 있다면 닭과 달걀 문제 
+누군가는 먼저 네이티브로 존재해야 하죠
+
+---
+
+메모리 실행 페이지의 기계어
+OS가 메모리를 관리하는 단위(보통 4KB)
+페이지마다 읽기/쓰기/실행 권한이 붙습니다
+
+바이너리 속 기계어
+빌드 때 파일(.exe/.dll)의 코드 섹션에 새겨진 것
+프로세스 시작 시 OS 로더가 그 파일을 메모리에 매핑
+
+실행 페이지의 기계어는 실행 중에 태어난 것
+JIT가 OS에서 빈 페이지를 받아(VirtualAlloc/mmap), 
+거기에 방금 생성한 기계어 바이트를 써넣고, 
+페이지 권한을 실행 가능으로 바꿉니다
+
+---
+
+iOS가 JIT를 금지하는 방법
+
+일반 앱에게 "쓰기 가능했던 페이지를 실행 가능으로 바꾸는 것"을 허용하지 않는 것
+
+---
+
+JIT 산출물은 어디에 저장
+
+GC 힙(C# 객체용)도, malloc 힙(일반 네이티브 데이터용)도 아니고, 
+JIT가 따로 운영하는 코드 캐시
+
+OS에서 직접 페이지를 받아 실행 권한을 부여해 관리하는 전용 풀
+
+실행 권한이 필요하고(데이터 힙은 보안상 실행 불가가 원칙
+W^X: 쓰기와 실행을 동시에 주지 않는 규칙)
+
+트램폴린 패치 같은 특수 작업이 있고, 수명도 다릅니다. 
+한 번 컴파일된 메서드의 기계어는 보통 프로세스가 사는 동안 유지되고 재사용됩니다.
