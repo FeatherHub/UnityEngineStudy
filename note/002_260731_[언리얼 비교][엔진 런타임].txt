@@ -1,0 +1,635 @@
+엔진 코어의 플랫폼 추상화
+
+플랫폼을 실제로 만지는 코드
+창 생성, 입력, 파일시스템, 스레드, 오디오
+그래픽스 API(D3D/Vulkan/Metal/GLES/WebGPU)
+
+UE의 HAL과 같은 종의 작업
+
+---
+
+libil2cpp의 os 층이 Win32/Posix/Linux/OSX/Android/Emscripten 폴더로 갈라진 것
+(GenericPlatform 패턴)
+
+PlaybackEngines가 플랫폼별 모듈로 분리 설치되는 구조
+
+---
+
+iOS·콘솔·WebGL·안드로이드 릴리스는 IL2CPP, 즉 AOT
+
+---
+
+IL2CPP
+
+C# 의미론을 C++ 문법으로 부호화한 기계 생성물
+
+C#의 arr[i] = x;
+
+if (arr == NULL) raise(Exception::GetNullReferenceException(...));   // null 검사
+if (i >= arr->max_length) raise(Exception::GetIndexOutOfRangeException()); // 경계 검사
+arr->vector[i] = x;
+
+---
+
+IL2CPP는 출시 빌드에만 등장
+
+일상 개발은 에디터의 Mono JIT 위라서,
+수정→수 초 컴파일→플레이 모드의 루프를 돕니다
+
+헤더도, 링커도, 템플릿 비용도 없이요
+
+---
+
+libil2cpp
+
+JIT만 뺀 VM
+
+---
+
+C++ 템플릿은 컴파일 타임 코드 생성 
+C# 제네릭은 IL로 한 번 컴파일되고 인스턴스화는 런타임 몫
+
+---
+
+C# 컴파일러는 IL에서 멈춥니다. 
+레지스터 할당, 명령 선택, 최적화 같은 컴파일의 비싼 후반전을 아예 안 하고, 
+그 비용을 JIT(실행 중 메서드 단위로 잘게 분납) 
+또는 IL2CPP(출시일에 일시불)로 미룹니다. 
+
+C++ 컴파일러는 매 빌드마다 풀코스를 뜁니다. 
+즉 C#은 비싼 절반을 개발 루프 밖으로 추방한 겁니다.
+
+---
+
+어셈블리 A가 바뀌면 A를 참조하는 어셈블리들도 재컴파일
+C#은 파일 단위 증분 컴파일이 없습니다
+컴파일 단위가 어셈블리
+private 메서드 본문 한 줄을 고쳐도 그 어셈블리의 모든 .cs가 다시 컴파일
+
+---
+
+같은 헤더 텍스트가 TU마다 다른 의미일 수 있기 때문
+
+헤더의 파싱 결과는 include 지점의 전처리기 상태에 의존
+
+---
+
+PCH(미리 파싱한 헤더)
+unity build(여러 .cpp를 합쳐 헤더 재파싱을 줄이는 것)
+
+---
+
+미룬 코드젠 비용을 개발 중엔 JIT 워밍업으로, 
+출시 때는 IL2CPP 빌드 시간으로 지불
+
+---
+
+CoreMinimal.h → 고유 헤더 300+개, 약 100,000줄
+Actor.h      → 고유 헤더 500+개, 약 200,000줄
+
+게임플레이 .cpp 하나가 Actor.h에 헤더 몇 개만 더 얹으면 
+전처리 후 입력이 20~30만 줄이 되는 겁니다
+
+Actor.h 한 장이 자기 의존을 부르고, 그것들이 또 부르고… 500+장이 딸려 옵니다
+
+---
+
+Stack<int>를 .cpp 100개가 쓰면? 
+
+컴파일 타임에는 100번 각자 인스턴스화합니다. 
+분리 컴파일 원칙상 컴파일러는 다른 TU를 볼 수 없으니 각자 만들 수밖에 없어요. 
+
+그다음 링크 타임에 링커가 중복본을 병합합니다
+(COMDAT folding — ODR 규칙이 "전부 동일해야 한다"를 보장하니 하나만 남기고 버림)
+
+최종 바이너리의 코드는 공유가 맞지만, 
+인스턴스화 노동은 100번 지불했고 
+링커는 중복 제거 비용까지 추가로 냅니다. 
+
+이 낭비를 수동으로 막는 opt-in 캐시가 
+extern template(명시적 인스턴스화 선언 — "정의는 저쪽 TU에 있으니 여기선 만들지 마")
+
+---
+
+링크는 반복 루프의 임계 경로에 상존하고, 
+비용은 내 수정량이 아니라 모듈 크기에 비례합니다
+(한 줄 고쳐도 그 모듈의 심볼 해석과 PDB 생성을 다시)
+
+incremental link가 있지만 
+제약이 많아 풀링크로 자주 폴백
+
+---
+
+IDE에서 .cs 수정 후 저장
+Unity 에디터 창으로 포커스를 전환 → Unity가 파일 변경을 감지(Auto Refresh)
+
+---
+
+Unity가 내장 Roslyn으로 직접 컴파일
+산출물은 프로젝트의 Library/ScriptAssemblies에 떨어짐
+
+---
+
+도메인 리로드 → 새 코드 활성화
+
+Play Mode → 새 코드로 실행
+
+---
+
+UE식 네이티브 디버깅
+
+디버거가 OS 기능(ptrace, DebugActiveProcess)으로 
+남의 프로세스를 멈추고, INT3를 심고, 메모리를 직접 읽고, PDB로 주소↔소스를 대조
+모든 일을 바깥에서
+
+---
+
+IDE가 에디터 프로세스 안의 Mono VM에 디버거 프로토콜로 붙는 것
+디버거 서버가 프로세스 안에 산다
+
+managed 디버깅은 구조가 반대
+런타임 자신이 디버그 에이전트 — 즉 서버를 내장
+
+Unity 에디터의 Mono VM은 로컬 TCP 소켓을 열어놓고 기다리고, 
+에디터는 자기 프로세스 정보를 프로젝트의 Library/EditorInstance.json에 광고
+
+IDE의 "Attach to Unity"는 그걸 읽어 TCP로 접속하는 클라이언트일 뿐
+접속 후엔 와이어 프로토콜로 대화
+
+"이 메서드의 이 IL 오프셋에 브레이크포인트", "스텝", "이 지역변수 값 줘". 
+
+브레이크포인트에 걸리면 VM이 스스로 안에서 managed 스레드들을 멈추고 클라이언트에 통지
+JIT가 코드를 만들 때 IL↔소스 줄 매핑(sequence point)을 심어두었기에 가능한 일
+
+---
+
+디버기(에디터)는 이미 떠 있고, 
+디버그 서버를 이미 품고 있으니 접속만 하면 됩니다. 
+
+il2cpp_runtime_invoke가 "호출의 문"이었다면, 
+이 에이전트는 임베드된 런타임이 여는 관찰의 문
+
+프로토콜이 TCP라서 폰에서 도는 플레이어 빌드에도 WiFi로 붙습니다
+(Script Debugging 켜고 빌드하면 플레이어가 네트워크에 자기를 브로드캐스트)
+
+---
+
+libil2cpp의 debugger 폴더
+
+JIT가 없는 AOT 빌드에도 같은 프로토콜의 에이전트가 컴파일되어 들어갑니다.
+iOS 실기기에서도 에디터와 같은 디버깅 경험이 되는 이유
+
+---
+
+managed 디버거는 managed 프레임만 봅니다.
+콜스택은 Update()에서 시작하고 
+그 아래 네이티브 구간은 보이지 않으며,
+transform.position 안으로 스텝 인 할 수 없습니다
+
+조사식으로 프로퍼티를 보는 것조차 엔진 호출을 실행하는 것
+(평가에 부작용이 있을 수 있다)
+
+---
+
+알아야 할 '엔진 안무'의 총량이 다르다
+
+UE가 거대하고 참견 많은 게임플레이 프레임워크를 강제하기 때문
+
+GameMode/PlayerController/Pawn/HUD
+
+엔진이 짜놓은 안무가 복잡하고 넷모드마다 갈라지니, 
+그 안무를 모르면 틀린 코드를 쓰게 되고, 안무의 완전한 기술은 소스에만 있죠
+
+---
+
+Unity는 그 안무 자체가 거의 없습니다
+GameMode도, PlayerController 생성 경로도, HUD 생명주기도 없어요
+
+엔진이 정의하는 순서의 표면적은 사실상 스크립트 생명주기 + 씬 로드 + PlayerLoop이 전부
+
+"플레이어가 언제 어떻게 생성되나"는 
+Unity에서 엔진 지식이 아니라 내 코드
+
+---
+---
+---
+
+UE Replication System의 Unity 대응물
+
+Netcode for GameObjects(NGO)
+
+NetworkObject ≈ bReplicates 켠 Actor
+NetworkBehaviour ≈ 복제 로직을 담는 컴포넌트
+NetworkVariable<T> ≈ UPROPERTY(Replicated)
+[ServerRpc]/[ClientRpc] ≈ UFUNCTION(Server)/(Client)
+
+OnValueChanged 콜백이 OnRep 역할
+
+서버 권위 토폴로지, 스폰 관리까지 구도가 같다
+
+---
+
+Netcode for Entities(NfE)
+
+ECS 위에서 ghost(복제 엔티티)를 스냅샷 델타 압축으로 뿌리고, 
+클라이언트 예측+롤백, relevancy/importance까지
+
+Burst로 컴파일되는 DoD 복제
+
+그 아래 전송 계층인 Unity Transport가 NetDriver 층에 해당
+
+코어가 네트워킹을 소유하지 않은 탓에 서드파티 생태계(Mirror, Fish-Net, Photon)가 크고, 
+실전에서는 NGO 대신 이쪽을 쓰는 팀도 많습니다
+
+---
+
+Burst 컴파일
+
+C#의 제한된 서브셋(HPC# — managed 객체 없음, GC 할당 없음, blittable 값 타입만)을 받아서,
+LLVM(Clang과 같은 최적화 백엔드)으로 컴파일하는 Unity 전용 컴파일러
+
+[BurstCompile]을 붙인 잡(IJob류)이나 ISystem이 대상 
+에디터에선 백그라운드로, 플레이어 빌드에선 AOT로 미리 컴파일
+
+---
+
+NativeContainer들은 서로 겹치지 않음(noalias)이 보장돼서 
+C++ 컴파일러가 못 하는 벡터화가 합법이 되고, 
+
+Unity.Mathematics의 float4 같은 타입은 SIMD 레지스터에 직결되고, 
+안전검사는 에디터에선 유지·빌드에선 제거되며, 
+타깃 CPU(AVX2 등)별 코드를 뽑습니다
+
+그 영역 안에서만 클래스·GC·리플렉션을 포기하고, 대신 최상급 codegen을 받는 거래
+
+---
+
+C# 소스 → IL(컴파일러 = Roslyn), 
+후반전: IL → 기계어(런타임의 JIT). 
+
+"codegen 품질"은 후반전 실력
+
+같은 IL을 받아도 JIT마다 만드는 기계어가 다릅니다
+
+인라인을 얼마나 과감히 하나, 
+struct를 레지스터에 유지하나 메모리에 흘리나, 
+루프에서 경계 검사를 증명해 제거하나, 자동 벡터화를 하나
+
+---
+
+Microsoft의 런타임은 .NET Core로 재출발하면서 RyuJIT라는 새 JIT를 얻었고, 
+이후 십 년간 계층형 컴파일, PGO(실행 프로파일 기반 재최적화), 벡터화 등 투자가 집중
+
+반면 Mono는 2001년생 프로젝트로, MS가 인수한 뒤 투자 축이 .NET로 쏠리며 사실상 유지보수 모드
+
+Unity는 그 Mono를 오래전에 포크했고(설치 폴더의 MonoBleedingEdge), 
+자체 GC(Boehm)와 콘솔 포팅을 얹으며 갈라져 나와서 
+.NET의 발전을 따라 당길 수 없는 상태
+
+---
+
+"처진다"의 실체
+
+같은 C# 코드가 Unity Mono 위에서 현대 .NET 위에서보다 느립니다
+핫루프에선 수 배까지 벌어질 수 있습니다. 
+
+인라인 휴리스틱이 소극적이고, struct가 자주 스택에 흘려지고, 
+경계 검사 제거가 약하고, 벡터화가 없다시피
+
+---
+
+전반전은 낡지 않았습니다. 
+Unity는 최신 Roslyn을 동봉해서(DotNetSdkRoslyn) 
+언어 기능은 현대적이고, 
+낡은 건 후반전(런타임)
+
+CoreCLR 이행이 로드맵에 오른 이유가 이 후반전 교체
+
+---
+
+Roslyn
+
+Microsoft의 오픈소스 C# 컴파일러 플랫폼
+
+컴파일의 전 과정(구문 트리, 의미 모델, 심볼)을 API로 노출하는 라이브러리
+
+IDE의 인텔리센스·리팩토링, analyzer(커스텀 컴파일 경고), source generator가 전부 같은 API 위에 지어집니다. 
+
+에디터가 Roslyn을 내장해 스크립트를 직접 컴파일하고(IDE 빌드가 무의미했던 이유), 
+NGO의 RPC 글루 코드나 DOTS의 ISystem 보일러플레이트가 source generator로 만들어집니다. 
+
+---
+
+HPC#
+High Performance C#
+
+C# 문법 그대로, 허용 범위만 좁힌 부분집합
+
+Burst가 컴파일해주는 코드 안에서는 
+class(참조 타입) 사용 금지, GC 할당 금지, 예외는 제한적, 
+허용되는 건 값 타입과 NativeContainer들 — 그중에서도 blittable 타입
+
+blittable이란 "managed 쪽과 네이티브 쪽의 메모리 표현이 동일해서 비트 그대로 복사 가능한 타입"
+(int, float, 그것들로만 구성된 struct는 되고, string이나 class 참조는 안 됨)
+
+---
+
+공격적 컴파일 = 시간과 메모리를 아낌없이 태워서 최적화 패스를 깊게 도는 것
+인라인을 몇 단계씩 파고들고, 루프를 펼치고, 벡터화를 시도하고, 레지스터 할당을 정교하게 푸는 것
+컴파일 시간을 내주고 실행 속도를 사는 거래
+
+---
+
+JIT는 게임이 도는 중에 컴파일
+메서드 하나에 LLVM급 최적화를 돌리면 수십~수백 배의 컴파일 시간이 들고, 
+그 스톨이 프레임 드랍으로 직결
+
+그래서 현대 .NET의 타협이 계층형 컴파일(일단 빠르게 대충 → 뜨거워진 메서드만 백그라운드에서 재최적화)
+
+---
+
+벡터화(SIMD)
+
+CPU에는 한 명령으로 여러 데이터를 동시에 처리하는 명령어들
+AVX2면 float 8개를 한 번에 곱하고 더합니다. 
+
+자동 벡터화란 컴파일러가 스칼라 루프(한 번에 하나)를 이런 SIMD 루프(한 번에 8개)로 변환하는 것
+이론상 8배
+
+---
+
+aliasing
+
+두 포인터가 겹치는 메모리를 가리키는 상황
+벡터화를 죽인다
+C++ 컴파일러는 임의의 두 float*가 안 겹친다는 걸 증명할 방법이 없습니다
+
+---
+
+6.5에서 새 런타임 세션의 생명주기 API 도입
+6.6에서 Fast Enter Play Mode 기본화
+6.7 LTS에서 실험적 CoreCLR 데스크톱 플레이어
+6.8에서 Mono  은퇴 .NET 10 + C# 14 탑재
+
+---
+
+Boehm은 객체를 안 옮기는 GC라 m_CachedPtr 같은 날 포인터 상호참조가 성립했는데, 
+CoreCLR의 GC는 객체를 이동·압축합니다. 
+
+네이티브↔managed 래퍼 아키텍처 전체가 "객체는 제자리에 있다"는 가정 위에 있었으니 근본 수술이 필요
+
+---
+
+도메인 리로드는 AppDomain unload 위에 지어졌는데 
+CoreCLR엔 AppDomain이 없습니다(대체물인 AssemblyLoadContext는 강제 언로드가 안 됨)
+
+---
+
+.NET(Mono 세대)에 AppDomain 
+
+프로세스 안의 프로세스 같은 격리 단위
+로드된 어셈블리들, static 변수들, JIT 산출물이 이 안에 삽니다
+
+Mono에선 어셈블리 하나만 콕 집어 언로드할 수 없습니다
+낡은 코드를 치우는 유일한 방법이 도메인을 통째로 내리는 것
+
+---
+
+Unity의 스크립트 갱신 절차
+
+에디터 상태를 직렬화로 백업 
+→ 도메인 언로드(모든 managed 객체·static·이벤트 구독·JIT 코드 소멸) 
+→ 새 도메인 생성 
+→ 새 어셈블리 로드 
+→ 초기화 재실행(EditorAssemblies::ProcessInitializeOnLoadAttributes의 "event re-wiring") 
+→ 상태 복원
+
+스크립트 컴파일 후 마다, 기본 설정에선 Play 진입 때마다 일어납니다
+static이 깨끗한 상태에서 시작함을 보장하려고요
+
+Play 버튼이 느린 주범이고, 
+그래서 Fast Enter Play Mode(리로드 생략, "static 초기화는 네 책임" 조건부)가 있고,
+로드맵대로면 6.6에서 기본값이 됩니다
+
+CoreCLR에는 AppDomain이 없으니(6.5의 새 생명주기 API가 그 후계 체계) 
+이 기계 전체가 교체되는 중
+
+살아남는 것: 직렬화되는 필드들
+죽는 것: static, C# 이벤트, 스레드, 비직렬화 상태 전부
+
+---
+
+지금까지 에디터 툴 코드가 이 순간들에 매달릴 때 쓰던 고리들
+(AssemblyReloadEvents, static 생성자, AppDomain 이벤트)이 전부 AppDomain의 존재를 전제
+
+---
+
+이중 구조
+
+GameObject와 컴포넌트의 네이티브 반쪽은 managed 도메인 밖에 살아서 
+리로드와 무관하게 존속
+
+죽는 건 managed 래퍼 쪽뿐
+
+그래서 Unity는 언로드 직전에 직렬화기(씬·프리팹·인스펙터에 쓰는 직렬화기)로 
+각 컴포넌트의 직렬화 가능한 필드들을 네이티브 쪽 메모리에 베껴두고, 
+
+새 도메인이 뜨면 래퍼 객체들을 새로 만들어(m_CachedPtr로 재연결) 
+베껴둔 값을 도로 부어 넣습니다.
+
+---
+
+static
+
+직렬화기는 "객체 인스턴스"의 필드를 걷는 물건인데 
+static은 인스턴스가 아니라 타입 소속이라 순회 대상에 없고
+
+설령 저장한들 내용물이 대개 옛 세계의 객체·델리게이트 참조라 복원이 무의미
+
+Unity의 선택은 복원이 아니라 재초기화(static 생성자 재실행, InitializeOnLoad로 재배선)
+
+---
+
+C# 이벤트/델리게이트
+
+델리게이트의 실체는 "코드 주소 + 대상 객체" 쌍인데, 
+그 코드(JIT 산출물)가 도메인과 함께 소멸하니 저장할 방법 자체가 없습니다. 
+
+---
+
+네이티브 = 닫힌 C++ 코어 쪽
+managed = C# 쪽
+
+---
+
+il2cpp.exe(IL→C++ 변환기)
+transpile(소스→소스 변환)
+
+이 경우 C++를 "이식성 좋은 어셈블리어"로 쓰는 AOT 컴파일러 백엔드
+
+---
+
+libil2cpp
+IL 의미론 실행 + GC + 타입 시스템과 캐스팅 + 예외 기계 + 메타데이터/리플렉션 + interop + 스레딩
+
+il2cpp.exe(컴파일러) + libil2cpp(JIT만 뺀 VM) 세트가 
+CoreCLR(RyuJIT + VM 서비스)과 같은 구성의 CLI 표준 구현체
+
+---
+---
+---
+
+Behaviour는 "켜고 끌 수 있는(enabled) 컴포넌트"라는 네이티브 개념
+Camera, Light도 Behaviour입니다. 
+
+MonoBehaviour
+로직이 네이티브가 아니라 Mono 런타임 쪽에 사는 Behaviour
+"Mono(런타임에서 도는)-Behaviour(켜고 끌 수 있는 컴포넌트)"
+
+---
+
+2005년 Unity는 C#, UnityScript, Boo 세 언어를 지원했고 
+셋 다 IL로 컴파일되어 Mono에서 돌았기 때문
+
+---
+
+.NET이라는 표준(C# 언어, IL, 런타임 의미론 — ECMA 규격)이 있고, 
+그 표준의 구현체가 여럿 있습니다. 
+
+Microsoft의 .NET Framework CLR(당시 Windows 전용·비공개)
+
+Mono — 2001년에 "이걸 리눅스에서도 돌리자"며 시작된 독립 오픈소스 구현체
+
+이후 Microsoft가 직접 만든 크로스플랫폼 오픈소스 구현이 CoreCLR이고, 
+Unity의 il2cpp도 이 표준의 구현인 셈
+
+---
+---
+---
+---
+---
+---
+
+NDA
+Non-Disclosure Agreement
+비밀유지계약
+
+PlayStation, Xbox, Nintendo 같은 콘솔 코드는 
+플랫폼 사업자의 영업비밀과 보안 정보가 포함되므로, 
+등록된 개발자임을 확인받고 NDA에 동의해야 접근할 수 있습니다
+
+---
+
+Head
+소수의 대형·고급 고객: 엔진 소스 접근이 매우 중요함
+
+Long tail
+다수의 일반 고객: 에디터와 공개 API만으로 충분하며 소스 접근 요구가 낮음
+
+---
+
+LGPL
+GNU Lesser General Public License
+
+LGPL 라이브러리를 사용한다는 사실과 라이선스문을 제공한다.
+배포한 LGPL 라이브러리와 그 수정본의 대응 소스를 수령자에게 제공한다.
+
+---
+---
+---
+
+Java
+Child(int value) {
+    super(value);
+    this.value = value;
+}
+
+---
+
+JavaScript
+class Child extends Parent {
+    constructor(value) {
+        super(value);
+        this.value = value;
+    }
+}
+
+---
+
+C++
+
+Child::Child(int Value)
+    : Parent(Value)
+    , Value(Value)
+{
+    // 이 시점에는 부모와 멤버가 모두 생성된 상태
+}
+
+---
+C++
+
+class Leaf : public Parent2
+{
+public:
+    Leaf()  { /* 마지막에 실행 */ }
+    ~Leaf() { /* 가장 먼저 실행 */ }
+};
+
+생성: Root → Parent1 → Parent2 → Leaf
+소멸: Leaf → Parent2 → Parent1 → Root
+
+---
+
+Java, JavaScript
+보장 없음. GC가 관리
+
+Java의 finalize()는 실행 시점과 순서가 보장되지 않으며 제거 예정이고, 
+자원 정리는 AutoCloseable과 try-with-resources를 사용
+
+JavaScript 역시 객체가 GC될지조차 명세가 보장하지 않으므로 
+FinalizationRegistry를 소멸자처럼 사용하면 안 됩니다
+
+---
+
+EndPlay / Deinitialize / OnUnregister 등
+논리적인 활동 종료. 객체 메모리는 아직 존재할 수 있음
+
+GC가 도달 불가능 판정
+BeginDestroy()
+IsReadyForFinishDestroy()
+FinishDestroy()
+
+---
+
+~자식 클래스()
+    ↓
+부모 소멸자들
+    ↓
+~UObjectBase()
+    ↓
+메모리 해제
+
+Object->~UObject();
+GUObjectAllocator.FreeUObject(Object);
+
+---
+
+C++ 소멸자는 비동기 정리를 기다리는 단계로 나눌 수 없습니다
+소멸자가 시작되면 한 번에 끝나야 합니다
+
+반면 GPU나 오디오 자원은 다른 스레드에 해제를 요청한 뒤 fence 완료를 기다려야 할 수 있습니다
+
+BeginDestroy             정리 시작
+IsReadyForFinishDestroy  완료 여부 확인
+FinishDestroy            최종 정리
+
+비동기 정리를 시작하기 위한 함수
+
+---
+
+Blueprint가 추가한 비네이티브 프로퍼티는 
+C++ 클래스 선언에 실제 멤버로 존재하지 않습니다. 
+
+그래서 UObject::FinishDestroy()가 별도로 DestroyNonNativeProperties()를 호출
+
+---
