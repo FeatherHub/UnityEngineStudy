@@ -1,0 +1,1617 @@
+고정 경로 시대 (2005~2009, Unity 1~2)
+
+렌더링 경로는 Vertex Lit / Forward 두 가지뿐
+사용자는 ShaderLab으로 셰이더만 갈아끼웠죠
+
+라이트 개수가 늘면 오브젝트를 라이트 수만큼 다시 그리는 multi-pass forward
+
+---
+
+Deferred의 도입 (2010, Unity 3.0)
+
+Deferred Lighting(= Light Pre-Pass) 과 Illuminate Labs의 Beast 라이트맵퍼를 넣었습니다.
+Deferred Shading이 아니라 Light Pre-Pass
+
+당시 하드웨어에서 MRT 대역폭이 비쌌기 때문에 
+G-buffer를 최대한 얇게(depth + normal + specular power) 유지하는 쪽을 택
+
+대가는 지오메트리를 두 번 통과한다는 것
+Base Pass(버퍼 채우기) → Lighting Pass(스크린 스페이스 라이팅) → Final Pass(다시 그리며 라이팅 합성)
+
+---
+
+PBR 대전환 (2015, Unity 5)
+
+Standard Shader가 들어오면서 metallic/specular 워크플로우의 물리 기반 셰이딩이 기본이 되고, 
+Enlighten 실시간 GI가 통합됐습니다
+
+그리고 이 PBR 전환이 Light Pre-Pass를 죽였습니다
+G-buffer가 얇으면 PBR에 필요한 정보(albedo, metallic, smoothness, occlusion)를 담을 수 없거든요
+
+그래서 Deferred Shading으로 갈아타고
+Light Pre-Pass는 "Legacy Deferred"로 강등
+
+Standard 셰이더도 리플렉션 프로브도 지원 못 했으니까요
+
+---
+
+SRP, 렌더 루프를 C#으로 (2018, Unity 2018)
+
+Unity가 렌더 루프 자체를 C#에 개방합니다. 
+컬링, 드로우 순서, 패스 구성을 스크립트로 짜는 Scriptable Render Pipeline
+
+동시에 두 개의 기성품 파이프라인
+LWRP(모바일/저사양)와 HDRP(콘솔/PC 고사양) — 를 함께 냈습니다
+
+같은 시기에 Shader Graph, Post Processing Stack v2, Progressive Lightmapper도 들어옵니다
+
+---
+
+URP로의 수렴 (2019~2022)
+
+LWRP has been renamed to the "Universal Render Pipeline" (UniversalRP)
+"가벼운 것"에서 "보편적인 것"으로 포지셔닝이 바뀐 순간
+
+SRP Batcher (2019.1)
+셰이더 프로퍼티를 UnityPerMaterial CBUFFER 하나로 묶어 
+GPU 메모리에 상주시키는 방식
+
+머티리얼이 달라도 셰이더 배리언트만 같으면 배칭
+
+---
+
+Unity 6, GPU-driven 시대
+
+Forward = 0,
+ForwardPlus = 2,   // [InspectorName("Forward+")]
+Deferred = 1,
+DeferredPlus = 3,  // [InspectorName("Deferred+")]
+
+---
+
+Forward(LWRP) 
+→ Deferred(URP 12) 
+→ Forward+(URP 14, 클러스터 라이팅) 
+→ Deferred+(Unity 6.1)
+
+---
+
+2026 통합 전략
+
+BiRP는 Unity 6.5에서 공식 deprecated 마킹
+HDRP는 유지보수 모드. 신규 기능 없음
+URP가 유일한 파이프라인으로 통합
+
+HDRP급 기능을 URP로 흡수 중
+
+---
+
+Sprite도 Mesh고, SpriteRenderer도 평범한 Renderer입니다
+
+Sprite는 그냥 Mesh니까 3D scene 한가운데 놓아도, Perspective camera로 봐도 아무 문제가 없습니다
+billboard 처리 같은 특수 로직이 아니라 
+그냥 XY 평면에 놓인 폴리곤
+
+---
+
+Sprite asset은 "Texture의 부분 영역 + vertex/triangle 배열 + pivot + Pixels Per Unit"입니다.
+
+Mesh Type이 두 가지
+
+Full Rect — quad. triangle 2개, vertex 4개
+Tight — alpha 외곽선을 따라 다각형을 생성. vertex는 늘고 overdraw는 줄어듭니다
+
+---
+
+PPU가 world scale을 결정
+Pixels Per Unit
+
+PPU = 100이면 texture 100 pixel이 1 Unity unit(= 1 m)
+
+Physics2D의 스케일, Camera의 orthographicSize, PixelPerfectCamera 설정까지 묶습니다
+
+---
+
+alpha blend면 depth buffer가 아무것도 해결해주지 않습니다
+
+transparent queue 우선순위
+
+Sorting Layer / Order in Layer
+Render Queue
+Distance to Camera
+Sorting Group
+Material / Shader
+Tiebreaker (내부 순서 — 의존 금지)
+
+---
+
+Distance to Camera
+
+Perspective면 camera 위치까지의 직선 거리, 
+Orthographic이면 camera 시선축 (0,0,1)에 투영한 거리, 
+
+그리고 Custom Axis mode면 임의 축에 투영
+Custom Axis는 isometric tilemap 때문에 존재하는 옵션
+
+"화면 아래에 있을수록 앞"이라는 규칙
+
+---
+
+3D lighting은 normal · view vector · BRDF로 계산
+2D lighting은 화면공간 mask 합성에 가깝습니다.
+
+---
+ 
+Renderer2D의 frame 구조
+
+[LayerBatch 마다]
+  Normal Pass  ──▶ normals RT       (shader tag: NormalsRendering)
+  Shadow Pass  ──▶ shadow RT
+  Light Pass   ──▶ _ShapeLightTexture0..3
+
+
+[LayerBatch 마다]
+  Sprite Pass  ──▶ camera color     (shader tag: Universal2D)
+     └ sprite가 위 light texture를 sampling해서 자기 색에 곱/더함
+  Volumetric Shadow → Volumetric Light
+  Camera Sorting Layer copy
+
+---
+
+LayerBatch
+
+Sorting Layer마다 light texture를 새로 만들면 메모리와 대역폭이 터집니다
+
+반대로 전역 한 장만 쓰면 layer별로 다른 조명을 못 줍니다
+
+타협점이 "같은 light 집합을 공유하는 연속된 Sorting Layer들을 하나의 batch로 묶는다"
+정렬 순서는 보존되고, light texture 개수는 실제로 조명 구성이 바뀌는 경계 수만큼 생기죠
+
+---
+
+Orthographic
+픽셀 퍼펙트 조건
+
+screenHeight ÷ (2 × orthographicSize) = PPU
+
+PixelPerfectCamera가 이 관계를 자동으로 맞춰줍니다
+내부적으로는 정수 배율 RT에 그린 뒤 확대
+그 UpscalePass는 Renderer2D에만 존재
+
+---
+
+Physics — 완전히 별개
+
+3D는 NVIDIA PhysX, 2D는 Box2D
+
+Collider와 Collider2D는 서로 충돌하지 않고
+Rigidbody와 Rigidbody2D도, Raycast와 Raycast2D도 별개
+
+DOTS를 쓰면 축이 하나 더 생깁니다 — Unity Physics, Havok Physics
+
+---
+---
+---
+
+Godot                                    Unity
+─────                                    ─────
+Node                                     GameObject
+ ├─ Node2D    (Transform2D, 2×3)          └─ Transform (Matrix4x4, 언제나 3D)
+ │   └─ CanvasItem                            └─ Renderer
+ └─ Node3D    (Transform3D, 3×4)                   ├─ SpriteRenderer
+     └─ VisualInstance3D                           └─ MeshRenderer
+                                                       │
+RenderingServer                                        ▼
+ ├─ canvas_item_*  ◀── 2D                     Culling (ScriptableCullingParameters)
+ └─ instance/mesh  ◀── 3D                              │
+                                                       ▼
+Camera2D (canvas_transform 조작)               ScriptableRenderer
+Camera3D (projection matrix)                    ├─ UniversalRenderer
+                                                └─ Renderer2D
+shader_type canvas_item ─┐                          ▲
+shader_type spatial     ─┴─ 상호 배타          C# package code, Camera별 선택
+
+---
+
+Godot의 분리는 2D를 싸게 만듭니다
+Transform2D는 6 float이고, 
+2D 경로에는 depth buffer도, 3D bounds culling도, 4×4 행렬 곱도 없습니다
+
+Unity에서는 Sprite 하나도 4×4 matrix를 들고 다니고, 3D AABB로 culling되고, 3D depth attachment가 붙은 RT에 그려집니다.
+
+Renderer2DData에 useDepthStencilBuffer 같은 플래그가 있는 것도 "필요 없는 걸 끄는" 형태로 대응
+
+---
+
+반대급부는 유연성
+
+Unity에서는 2D 캐릭터 뒤에 3D 배경을 두거나, 3D 씬에 UI Sprite를 섞거나,
+같은 shader를 양쪽에 쓰는 게 특별한 장치 없이 됩니다
+
+Godot에서 2D를 3D에 넣으려면 SubViewport를 텍스처로 굽는 우회가 필요
+
+---
+---
+---
+
+UE 5.6                                    Unity 6.4 URP
+──────                                    ─────────────
+FRendererModule::BeginRenderingViewFamily  RenderPipelineManager
+  (Game Thread)                              (Main Thread)
+       │ ENQUEUE_RENDER_COMMAND                    │
+       ▼                                           ▼
+FSceneRenderBuilder::Execute               UniversalRenderPipeline::Render
+       │ (Render Thread)                           │
+       ▼                                           ▼
+FDeferredShadingSceneRenderer::Render      ScriptableRenderer::RecordRenderGraph
+  = 그래프 빌드 (AddPass)                    = 그래프 빌드 (AddRasterRenderPass)
+       │                                           │
+       ▼                                           ▼
+FRDGBuilder::Execute                       RenderGraph::Execute
+  = compile → barrier/lifetime → 실행        = 같음
+       │                                           │
+       ▼                                           ▼
+FRHICommandList → RHI Thread → D3D12       CommandBuffer → 네이티브 → 그래픽스 잡
+
+---
+
+UE는 Game Thread와 Render Thread가 한 프레임 어긋난 채 병렬로 돕니다
+Proxy(GT 미러) / Info(소유 시스템의 작업 레코드) / State(프레임 간 기억)
+
+Unity
+Renderer 컴포넌트가 곧 렌더 데이터고, 렌더 스레드 미러가 없습니다
+SRP의 C# 코드는 메인 스레드에서 돌고, 병렬화는 그 아래 네이티브 C++에서
+
+---
+
+Unity
+
+RenderingUtils.CreateDrawingSettings
+RenderingUtils.CreateRendererListWithRenderStateBlock
+cmd.DrawRendererList
+
+shader tag 목록 + 정렬 기준 + 필터를 넘기면 
+그 다음은 네이티브 블랙박스
+
+---
+
+UE
+
+FMeshBatch = 중간표현(IR)
+FMeshPassProcessor = 코드 생성기
+FMeshDrawCommand = 기계어 한 줄
+정렬·병합 = 최적화 패스
+FParallelMeshDrawCommandPass = 병렬 빌드 시스템
+
+---
+
+mesh pass 목록
+
+DepthPass, SecondStageDepthPass, BasePass, AnisotropyPass, 
+SkyPass, SingleLayerWaterPass, SingleLayerWaterDepthPrepass,
+CSMShadowDepth, VSMShadowDepth, OnePassPointLightShadowDepth, MobileBasePassCSM, VirtualTexture,
+Distortion, Velocity, TranslucentVelocity, TranslucencyStandard/Modulate/AfterDOF/AfterMotionBlur/Holdout/All,
+LightmapDensity, DebugViewMode, CustomDepth, 
+LumenCardCapture, LumenCardNanite, LumenTranslucencyRadianceCacheMark, LumenFrontLayerTranslucencyGBuffer, DitheredLODFadingOutMaskPass, NaniteMeshPass,
+MeshDecal_DBuffer/SceneColorAndGBuffer/.../AmbientOcclusion,
+WaterInfoTextureDepthPass, WaterInfoTexturePass, MaterialCacheProjection
+
+각각에 FMeshPassProcessor 서브클래스가 하나씩 있고 
+각자 정렬 정책과 렌더타깃이 다릅니다.
+
+---
+
+URP의 대응물은 shader tag 문자열
+
+UniversalForward, UniversalForwardOnly, UniversalGBuffer, Universal2D, 
+DepthOnly, DepthNormals, ShadowCaster, Meta, MotionVectors, SRPDefaultUnlit
+
+---
+
+UE는 "엔진이 아는 렌더링 기법의 수"가 압도적이고 그 코드가 전부 엔진 안에 있습니다
+Unity는 그 수를 줄이는 대신 사용자가 pass를 추가할 길(ScriptableRendererFeature)을 열었죠
+(UE 도 서브클래스해서 커스텀 패스 정의는 가능)
+
+---
+
+Deferred의 규모
+
+UE 5.6 desktop GBuffer
+RT가 6장
+
+// ── EncodeGBuffer (DeferredShadingCommon.ush) ──
+OutGBufferA.rgb = EncodeNormal(GBuffer.WorldNormal);
+OutGBufferA.a   = GBuffer.PerObjectGBufferData;
+OutGBufferB.r   = GBuffer.Metallic;
+OutGBufferB.g   = GBuffer.Specular;
+OutGBufferB.b   = GBuffer.Roughness;
+OutGBufferB.a   = EncodeShadingModelIdAndSelectiveOutputMask(...);
+OutGBufferC.rgb = EncodeBaseColor(GBuffer.BaseColor);
+// + GBufferD, GBufferE, GBufferVelocity
+
+---
+
+URP deferred GBuffer
+RT 3장 + 필요할 때만 추가
+
+// ── PackGBuffer (GBufferOutput.hlsl) ──
+gBuffer0 = half4(surfaceData.albedo.rgb, PackGBufferMaterialFlags(materialFlags));
+gBuffer1 = half4(surfaceData.specular.rgb, surfaceData.occlusion);
+gBuffer2 = half4(packedNormalWS, surfaceData.smoothness);
+// + 조건부: depth / shadowMask / meshRenderingLayers
+
+---
+
+                 UE 5.6                         Unity 6.4 URP
+프레임 소유자    FSceneRenderer (C++, 고정)     ScriptableRenderer (C#, 교체 가능)
+렌더러 선택      feature level 자동, 2종        Asset에 N개 등록, Camera별 선택
+스레드 모델      GT/RT 분리 + Proxy 미러        메인 스레드 C#, 병렬은 네이티브 내부
+프레임 그래프    FRDGBuilder (2019~)            RenderGraph (URP 기본 2024~)
+드로우 표현      FMeshBatch→DrawCommand (1급)   RendererList (블랙박스)
+mesh pass 수     ~40                            shader tag ~10
+relevance        FPrimitiveViewRelevance 명시   shader의 pass 존재 여부로 암묵
+인스턴싱         GPUScene + dynamic instancing  SRP Batcher → GPU Resident Drawer
+visibility       SoA bitset, 코드로 노출        CullingResults, 불투명
+GBuffer          6 RT + ShadingModelID 분기     3 RT + 조건부 추가
+확장 축          머티리얼 그래프 / 엔진 소스    SRP 스크립트 / RendererFeature
+독자 기술        Nanite, Lumen, Substrate       APV, STP, Forward+/Deferred+, 2D Renderer
+
+---
+
+UE                                        Unity
+-----                                     -----
+Game Thread                               Main Thread
+  게임 로직, 컴포넌트 tick                  게임 로직, MonoBehaviour
+       │ ENQUEUE_RENDER_COMMAND                  │
+       ▼                                         │  ← 같은 스레드
+Render Thread                                    │
+  FScene 소유                                    │
+  Visibility / Relevance / LOD                   │  ScriptableRenderContext.Cull()
+  FMeshDrawCommand 굽기                          │  RendererList 구성
+  RDG 빌드 + Execute                             │  RenderGraph 빌드 + Execute
+       │                                         │
+       ▼ FRHICommandList                         ▼ GfxDeviceClient (중간 표현 커맨드)
+RHI Thread                                Render Thread
+  D3D12 / Vulkan 네이티브 커맨드 번역       GfxDeviceWorker → GfxDevice[Platform]
+  ExecuteCommandLists                       플랫폼 API 커맨드로 번역
+       │                                         │
+       ▼                                         ▼
+      GPU                                       GPU
+
+---
+
+Unity의 Render Thread는 UE의 RHI Thread에 대응
+
+메인 스레드가 GfxDeviceClient를 통해 그래픽스 커맨드의 중간 표현을 공유 버퍼에 쌓고
+Render Thread가 GfxDeviceWorker로 그걸 읽어 GfxDevice[Platform]에 넘겨
+플랫폼 API 커맨드로 번역합니다
+
+UE
+
+FRHICommandList → RHI Thread → ID3D12GraphicsCommandList
+
+---
+
+Unity는 UE의 Game Thread와 Render Thread를 하나로 합친 구조
+이건 C#에서 부르는 동기 블로킹 호출
+내부적으로 job system
+
+UE라면 이게 Render Thread에서, 비동기 task graph로 돌아가는 부분
+
+---
+
+트레이드오프
+
+UE: 프레임 하나만큼의 병렬성을 얻습니다. 
+Game Thread가 프레임 N+1을 도는 동안 Render Thread가 프레임 N을 그립니다. 
+대가는 프록시 미러링과 1프레임 latency
+
+Unity: 미러링이 필요 없고 코드가 단순합니다. 
+대가는 메인 스레드가 게임 로직 + culling + draw list 구성을 다 짊어진다는 것. 
+Unity에서 "메인 스레드 병목"이라는 말이 자주 나오는 구조적 이유
+
+---
+
+게임 세계 / 렌더 세계의 분리
+
+Unity에서 C#의 Renderer, Transform, MeshFilter는 전부 네이티브 C++ 객체의 얇은 래퍼
+transform.position = x는 즉시 네이티브 객체를 바꾸고, 
+그 네이티브 객체가 곧 렌더 데이터
+
+렌더 스레드가 씬을 소유하지 않으니 미러가 필요 없습니다. 
+Culling이 메인 스레드에서 네이티브 씬을 직접 읽고, 
+그 결과(draw list)만 커맨드 형태로 렌더 스레드에 넘어갑니다. 
+
+넘어가는 건 "객체 상태"가 아니라 "이미 확정된 명령"
+
+---
+
+UE      UPrimitiveComponent  →  FPrimitiveSceneProxy  →  FPrimitiveSceneInfo
+        (Game Thread 객체)      (Render Thread 미러)     (Scene 관리 레코드)
+
+Unity   Renderer (C# 래퍼) → 네이티브 Renderer 객체
+        끝. 미러 없음
+
+UE에서 MarkRenderTransformDirty → SendAllEndOfFrameUpdates 
+→ SendRenderTransform_Concurrent → FScene::UpdatePrimitiveTransform로 이어지는 경로가 Unity엔 없습니다
+
+---
+
+Unity 6
+
+GPU Resident Drawer가 들어오면서 상황이 바뀌었습니다
+정적 메시 데이터를 GPU 버퍼에 상주시키려면
+그 버퍼는 씬과 별개의 표현이고 동기화가 필요합니다
+
+Unity가 만든 답이 ObjectDispatcher
+매 프레임 한 지점에서 변경분을 일괄 수거합니다
+
+GPUResidentDrawer::PostPostLateUpdate
+
+---
+
+UE는 push: 컴포넌트가 스스로 MarkRenderTransformDirty()를 눌러 dirty 플래그를 세우고, 
+프레임 끝에 그 플래그가 선 것들만 렌더 커맨드로 밀어냅니다
+
+Unity는 poll: ObjectDispatcher가 타입/트랜스폼 변경을 추적하고 있다가, 
+GPUResidentDrawer가 매 프레임 GetChangesAndClear로 긁어갑니다
+
+---
+
+UE의 프록시 시스템은 모든 렌더링의 전제 조건
+Unity의 ObjectDispatcher는 GPU-driven 경로만의 부속품
+
+---
+
+Nanite와 Lumen은 "폴리곤 예산과 라이트맵 베이크 시간"이라는 문제를 풉니다. 
+이건 하이엔드 3D 프로젝트의 문제고, 
+Unity 프로젝트의 중앙값은 모바일/2D/미드티어
+
+역으로 Unity가 공들인 것들
+
+Render Graph의 타일 메모리 pass merging(대역폭 최대 50% 절감), 
+on-tile post-processing, 
+타일 GPU를 노린 Deferred+,
+2D Renderer의 LayerBatch 설계
+
+UE 모바일 렌더러는 FMobileSceneRenderer 하나로 처리되는, 
+상대적으로 곁가지에 가까운 경로
+
+---
+
+Unity의 "메인 스레드"는 네이티브 PlayerLoop를 도는 스레드
+
+Unity 플레이어는 C++ 실행 파일
+그 안에서 프레임을 도는 게 PlayerLoop이고
+
+C# 스크립트는 그 루프 안의 특정 지점에서 네이티브가 managed로 호출해 들어가는 것
+
+---
+
+updateFunction
+native engine system
+
+updateDelegate
+managed delegate
+
+---
+
+UnityEngine.CoreModule
+PlayerLoopSystem
+
+C#이 들어가는 지점들
+
+FixedUpdate
+  ├─ PhysicsFixedUpdate            ← 네이티브
+  ├─ Physics2DFixedUpdate          ← 네이티브
+  ├─ DirectorFixedUpdate           ← 네이티브
+
+  ├─ ScriptRunBehaviourFixedUpdate ← ★ C# 진입 (MonoBehaviour.FixedUpdate)
+  └─ ScriptRunDelayedFixedFrameRate← ★ C# 진입 (WaitForFixedUpdate 코루틴)
+
+---
+
+Update
+  ├─ ScriptRunBehaviourUpdate      ← ★ C# 진입 (MonoBehaviour.Update)
+  ├─ ScriptRunDelayedDynamicFrameRate ← ★ 코루틴 재개
+  └─ ScriptRunDelayedTasks         ← ★
+
+---
+
+PreLateUpdate
+  ├─ ScriptRunBehaviourLateUpdate  ← ★ C# 진입 (MonoBehaviour.LateUpdate)
+
+  ├─ DirectorUpdateAnimationBegin/End
+  ├─ ParticleSystemBeginUpdateAll
+  └─ EndGraphicsJobsAfterScriptUpdate
+
+---
+
+PostLateUpdate
+  ├─ UpdateAllRenderers            ← 네이티브 (renderer 상태·이전 프레임 행렬 갱신)
+  ├─ UpdateAllSkinnedMeshes
+  ├─ UpdateAllSortingGroups
+  ├─ PlayerUpdateCanvases / PlayerEmitCanvasGeometry
+  ├─ FinishFrameRendering          ← 여기가 렌더링
+  ├─ ClearImmediateRenderers
+  └─ PresentAfterDraw
+
+---
+
+ScriptRunBehaviourUpdate
+
+C++가 이 노드를 돌면서 scripting backend(Mono 또는 IL2CPP)를 통해 등록된 
+MonoBehaviour.Update()들을 순회 호출
+
+---
+
+UE                                                  Unity
+──                                                  ─────
+FEngineLoop::Tick                                   네이티브 PlayerLoop
+  │  (Game Thread가 도는 C++ 함수)                   │  (Main Thread가 도는 C++ 루프)
+  ├─ UGameEngine::Tick                               ├─ FixedUpdate
+  │    └─ UWorld::Tick                               │    └─ ScriptRunBehaviourFixedUpdate
+  │         └─ AActor::Tick        ←콜백             │         └─ MonoBehaviour.FixedUpdate  ←콜백
+  │            UActorComponent::TickComponent        │
+  │                                                  ├─ Update
+  ├─ UGameEngine::RedrawViewports                    │    └─ ScriptRunBehaviourUpdate
+  │    └─ FViewport::Draw                            │         └─ MonoBehaviour.Update       ←콜백
+  │         └─ UGameViewportClient::Draw             │
+  │              CalcSceneView                       ├─ PreLateUpdate → LateUpdate 콜백
+  │              BeginRenderingViewFamily            │
+  │                    │                             └─ PostLateUpdate
+  │                    ▼                                  └─ FinishFrameRendering
+  │              ENQUEUE_RENDER_COMMAND                        └─ DoRenderLoop_Internal  ←콜백
+  ▼                                                                  └─ RenderPipeline.Render()  (C#)
+Render Thread                                                               │
+                                                                            ▼
+                                                                      GfxDeviceClient 커맨드
+                                                                            │
+                                                                            ▼
+                                                                      Render Thread
+
+---
+
+둘 다 "엔진 C++가 프레임 루프를 소유하고, 게임 코드는 그 루프 안에서 호출되는 콜백"
+
+UE는 BeginRenderingViewFamily에서 ENQUEUE_RENDER_COMMAND로 Render Thread에 넘겨버리고, 
+그 뒤 모든 렌더링(FScene 갱신, visibility, mesh draw command 굽기, RDG 빌드·실행)이 다른 스레드에서 일어납니다. 
+
+Unity는 DoRenderLoop_Internal 이후에도 같은 스레드에 남아서 
+culling과 RenderGraph 빌드까지 하고, 
+확정된 커맨드만 Render Thread로 흘려보냅니다
+
+---
+
+UE의 FEngineLoop::Tick은 함수 본문
+코드가 순서를 정하고, 그 순서는 컴파일 타임에 박힙니다
+
+Unity의 PlayerLoop는 런타임 자료구조
+PlayerLoopSystem의 트리고, 
+PlayerLoop.SetPlayerLoop()로 통째로 바꿔 끼울 수 있습니다
+
+---
+
+Android의 UI 스레드는 main이고, Unity의 PlayerLoop가 도는 건 UnityMain이라는 별도 스레드
+그래서 AndroidApplication.InvokeOnUnityMainThread 같은 API가 존재
+
+UE도 마찬가지로 Game Thread는 "이름 붙은 스레드"지 
+반드시 프로세스 시작 스레드는 아닙니다.
+
+---
+
+managed/native 경계는 스레드 경계가 아니라 호출 규약 경계
+
+C#이 "스크립트"라서 특별한 게 아니라, 
+그냥 다른 언어로 컴파일된 코드를 marshalling을 거쳐 부르는 것
+
+IL2CPP를 쓰면 C#이 C++로 트랜스파일되어 같은 바이너리에 들어가니, 그 구분은 더 흐려집니다
+
+---
+
+병렬성 두 종류
+
+fork-join (프레임 안에서 코어 나눠쓰기)
+  Main:  [game logic]──┬─[cull]─┬──[build draw list]──[submit]
+                       ├─[cull]─┤
+  Worker:              ├─[cull]─┤
+                       └─[cull]─┘
+
+---
+
+pipeline (프레임끼리 겹치기)
+  Game:   [Frame N]──────[Frame N+1]────[Frame N+2]
+  Render:          [Frame N]──────[Frame N+1]
+  RHI:                    [Frame N]──────[Frame N+1]
+
+서로 다른 프레임이 동시에 진행.
+
+---
+
+Schedule → 워커 스레드들이 병렬 실행 → 프레임 안에서 Complete. 코어는 이미 쓰고 있어요.
+Unity가 안 하는 건 pipeline
+
+---
+
+UE
+
+configured as a 'single frame behind' renderer
+
+This means that the RenderThread is processing Frame N 
+while the GameThread processes Frame N+1
+
+the rendering thread cannot directly touch the memory of UPrimitiveComponent 
+as the game thread may be writing to its members
+
+---
+
+UE2/3는 Xbox 360과 PS3 시대에 이미 game/render를 분리했습니다. 
+그 콘솔들은 코어는 여럿인데 각각 in-order라 느렸어요
+스레드 분리가 선택이 아니라 필수였습니다
+한 코어에 다 넣으면 프레임이 안 나왔거든요
+
+---
+
+Unity 1.0은 2005년 단일 코어 Mac 인디 엔진이었습니다
+이후 주 무대가 웹 플레이어와 초기 모바일이었고요.
+멀티코어가 중요해질 무렵엔 이미 API 표면이 굳어 있었습니다
+
+---
+
+모바일에서 파이프라이닝의 이득이 데스크톱만큼 크지 않다
+
+big.LITTLE: 추가 스레드가 little core에 얹히면 2~4배 느립니다
+코어 수만큼 처리량이 늘지 않아요
+스케줄러가 big core에 올려주리라는 보장도 없고요
+
+---
+
+Thermal budget: 지속 부하에서 모바일의 병목은 순간 성능이 아니라 총 전력
+big core 두 개를 계속 돌리면 하나만 돌릴 때보다 빨리 throttle에 걸립니다
+파이프라이닝은 CPU 가동률을 올리는 기법이라 이 축에서 불리
+
+---
+
+Memory
+프록시 미러는 per-object 렌더 상태를 두 벌 들고 다닙니다
+2GB Android에서 실비용이고요
+
+---
+
+UE의 설계는 "코어 여럿 + 전력 무제한 + 지연 허용" 환경(콘솔·PC)에서 최적이고
+모바일은 그 셋 다 다릅니다
+
+---
+
+"CPU culling이 비싸다"의 답은 세대별로 이렇게 변했습니다
+
+2000년대   → 다른 CPU 스레드로 (UE3의 game/render 분리)
+2010년대   → 여러 CPU 코어로   (job/task 병렬화)
+2020년대   → GPU로             (GPU-driven culling, indirect draw)
+
+UE도 도착지는 GPU입니다
+BuildInstanceDrawCommands.usf의 IsInstanceVisible, HZB 기반 인스턴스 오클루전
+
+Unity의 GPU Resident Drawer + GPU Occlusion Culling
+Unity는 중간 세대(파이프라인된 CPU 렌더러)를 건너뛰고 바로 GPU로 갔습니다
+
+---
+
+Camera.Render()
+
+Render the camera manually. This will render the camera
+This is used for taking precise control of render order. 
+To make use of this feature, create a camera and disable it. Then call Render on it
+
+---
+
+RenderTexture.active = camera.targetTexture;
+camera.Render();                              // ← 여기서 컬링·드로우·포스트가 다 끝난다
+image.ReadPixels(new Rect(0,0,w,h), 0, 0);    // ← 바로 다음 줄에서 결과를 읽는다
+image.Apply();
+
+---
+
+그리고 렌더링 도중에 스크립트 콜백을 발화시킵니다
+OnPreCull, OnPreRender, OnPostRender
+이 콜백들은 씬 상태를 만질 수 있고요
+
+용도: 미니맵, 포탈, 거울/반사, 감시 카메라 화면, 에셋 썸네일 생성
+
+---
+
+정규 카메라 렌더링은 PostLateUpdate 안의 고정 지점에서 일어납니다
+Camera.Render()가 하는 건 그 고정 지점 밖에서 추가로 한 번 더 돌리는 것
+
+---
+
+Unity:  C# (모두)          + Burst/DOTS (핫패스)
+UE:     Blueprint (모두)   + C++ (핫패스)
+
+---
+
+Burst
+
+기본은 편한 코드, 필요한 곳만 제약된 고성능 부분집합으로 opt-in
+
+---
+
+                  대역폭            성격
+데스크톱 GPU      500~1000 GB/s     GPU 전용 VRAM
+모바일 SoC        25~50 GB/s        CPU와 공유하는 단일 DRAM
+
+DRAM 접근은 on-chip SRAM(타일 메모리) 접근보다 대략 100배의 에너지를 씁니다
+그래서 tile-based GPU는 framebuffer를 칩 안 타일 메모리에 두고 작업하다가,
+타일이 끝날 때만 DRAM에 내보냅니다
+
+---
+
+1920 × 1080 × 8 B           ≈ 16.6 MB   (풀스크린 버퍼 한 장)
+store + load                ≈ 33 MB     (왕복 한 번)
+× 60 fps                    ≈ 2.0 GB/s
+
+---
+
+Render Graph의 pass merging과 on-tile post-processing이 사는 자리가 여기입니다
+중간 결과를 DRAM으로 내보냈다 다시 읽는 대신 타일 메모리에 붙잡아 두는 것
+
+Unity가 말하는 "대역폭 최대 50% 절감"
+
+---
+---
+---
+
+┌─ 층 5: 도구 ─────────────────────────────────────────┐
+│  Frame Debugger / Render Graph Viewer                │
+│  Rendering Debugger / Profiler                       │
+├─ 층 4: 스크립팅 API ─────────────────────────────────┤
+│  ScriptableRendererFeature · ScriptableRenderPass    │
+│  RenderGraph · CommandBuffer · Graphics.*            │
+│  RenderPipelineManager 이벤트 · VolumeComponent      │
+├─ 층 3: 프로젝트 설정 ────────────────────────────────┤
+│  Graphics / Quality / Player / Lighting              │
+├─ 층 2: 에셋                ──────────────────────────┤
+│  URP Asset · Renderer Data · Volume Profile          │
+│  Material · Shader Graph · Render Texture            │
+├─ 층 1: 씬 컴포넌트 ──────────────────────────────────┤
+│  Camera · Light · Renderer · Volume · Probe · LOD    │
+└──────────────────────────────────────────────────────┘
+
+---
+
+층 1 — 씬에 놓는 것
+
+Camera + UniversalAdditionalCameraData
+
+Render Type: Base / Overlay — Overlay 카메라를 Base의 Stack에 쌓아 합성
+Renderer: URP Asset에 등록된 renderer 중 선택
+Post Processing, Anti-aliasing(FXAA/SMAA/TAA)
+Rendering Layer Mask, Volume Mask
+
+---
+
+Light + UniversalAdditionalLightData
+
+Mode(Realtime/Mixed/Baked)
+Shadow Type
+Cookie
+Rendering Layers
+
+---
+
+Renderer 계열
+
+MeshRenderer, SkinnedMeshRenderer, SpriteRenderer, 
+ParticleSystemRenderer, LineRenderer, TrailRenderer
+
+전부 Renderer 상속이라 
+sortingLayerID / sortingOrder / renderingLayerMask를 공유
+
+---
+
+Volume
+
+Global / Local(Collider 필요)
+Weight, Priority, Blend Distance
+
+UE의 Post Process Volume과 거의 같은 물건
+
+---
+
+Probe 계열
+
+ReflectionProbe, LightProbeGroup, ProbeVolume(APV)
+
+Unity 6에서는 APV가 LightProbeGroup을 대체하는 방향
+Adaptive Probe Volumes
+
+---
+---
+---
+
+층 2 — 에셋
+Unity 렌더링 설정
+품질 레벨마다 URP Asset을 하나씩 만들어 
+Quality Settings에 물리는 게 표준 워크플로우
+
+URP Asset (UniversalRenderPipelineAsset)
+
+Rendering    m_RendererDataList, m_DefaultRendererIndex, m_RenderScale,
+             m_RequireDepthTexture, m_RequireOpaqueTexture, m_OpaqueDownsampling,
+             m_IntermediateTextureMode, m_StoreActionsOptimization
+
+Lighting     m_MainLightRenderingMode, m_MainLightShadowmapResolution,
+             m_AdditionalLightsRenderingMode, m_AdditionalLightsPerObjectLimit,
+             m_AdditionalLightsShadowmapResolution, m_MixedLightingSupported,
+             m_ReflectionProbeBlending, m_ReflectionProbeBoxProjection, m_ReflectionProbeAtlas,
+             m_LightProbeSystem, m_ProbeVolumeMemoryBudget, m_ProbeVolumeSHBands,
+             m_SupportProbeVolumeGPUStreaming, m_SupportProbeVolumeScenarioBlending
+
+Shadows      m_ShadowDistance, m_ShadowCascadeCount, m_Cascade2Split/3/4,
+             m_CascadeBorder, m_ShadowDepthBias, m_ShadowNormalBias, m_SoftShadowQuality
+
+PostFX       m_ColorGradingMode(LDR/HDR), m_ColorGradingLutSize,
+             m_HDRColorBufferPrecision, m_AllowPostProcessAlphaOutput
+
+Quality      m_MSAA, m_EnableLODCrossFade, m_LODCrossFadeDitheringType,
+             m_FsrSharpness, m_IUpscalerName, m_SmallMeshScreenPercentage
+
+GPU-driven   m_GPUResidentDrawerMode, m_GPUResidentDrawerEnableOcclusionCullingInCameras,
+             m_MacroBatcherMode
+
+---
+
+Renderer Data — "프레임 구조"
+
+UniversalRendererData(3D) 또는 Renderer2DData(2D)
+URP Asset이 "얼마나 좋게"라면 이건 "어떻게 그리는가"
+
+m_RenderingMode          Forward / Forward+ / Deferred / Deferred+   ← enum
+m_DepthPrimingMode       Disabled / Auto / Forced
+m_AccurateGbufferNormals
+m_CopyDepthMode, m_DepthTextureFormat, m_DepthAttachmentFormat
+m_IntermediateTextureMode
+m_OpaqueLayerMask, m_TransparentLayerMask, m_PrepassLayerMask
+m_DefaultStencilState
+m_ShadowTransparentReceive
++ Renderer Features 목록  ← 여기에 패스를 꽂습니다
+
+UE의 FDeferredShadingSceneRenderer 선택에 해당하는 게 이 에셋
+UE는 feature level로 자동 결정되고, Unity는 드롭다운
+
+---
+
+기본 제공 Renderer Feature
+
+DecalRendererFeature          
+ScreenSpaceAmbientOcclusion
+ScreenSpaceShadows            
+RenderObjects
+FullScreenPassRendererFeature 
+OnTilePostProcessFeature
+SurfaceCacheGIRendererFeature
+
+---
+
+Volume Profile — "포스트 프로세싱과 씬 룩"
+VolumeProfile 에셋에 VolumeComponent들을 담습니다
+URP 기본 18종
+
+Tonemapping          ColorAdjustments      ColorCurves        ColorLookup
+WhiteBalance         SplitToning           ShadowsMidtonesHighlights
+LiftGammaGain        ChannelMixer
+Bloom                DepthOfField          MotionBlur         FilmGrain
+Vignette             ChromaticAberration   LensDistortion
+PaniniProjection     ScreenSpaceLensFlare
+
+핵심 개념은 blending
+씬에 여러 Volume이 겹치면 Weight와 Priority로 파라미터가 보간
+
+---
+
+층 3 — 프로젝트 설정
+
+Project Settings > Graphics — Render Pipeline Asset 지정, Render Graph 활성화
+Default Volume Profile, Shader Stripping, Reflection Probe / Terrain 설정
+
+---
+
+Project Settings > Quality — 품질 레벨별 URP Asset 지정
+Render Scale, VSync, Texture Quality
+
+Project Settings > Player — Color Space (Linear / Gamma),
+Color Space는 프로젝트 초기에 정하고 다시는 안 건드리는 값인데, 
+잘못 두면 모든 라이팅이 틀립니다
+
+---
+
+Lighting
+
+Lightmapper(Progressive CPU/GPU)
+Environment Lighting
+Fog, APV 베이킹
+
+UE의 Build Lighting + World Settings에 해당
+
+---
+
+층 4 — 스크립팅 API
+
+파이프라인 훅
+
+RenderPipelineManager.beginContextRendering  += (ctx, cameras) => { };
+RenderPipelineManager.beginCameraRendering   += (ctx, cam) => { };
+RenderPipelineManager.endCameraRendering     += (ctx, cam) => { };
+RenderPipelineManager.endContextRendering    += (ctx, cameras) => { };
+
+---
+
+그리고 패스를 꽂을 수 있는 지점 18곳이 RenderPassEvent입니다
+
+BeforeRendering                 = 0
+BeforeRenderingShadows          = 50      AfterRenderingShadows        = 100
+BeforeRenderingPrePasses        = 150     AfterRenderingPrePasses      = 200
+BeforeRenderingGbuffer          = 210     AfterRenderingGbuffer        = 220
+BeforeRenderingDeferredLights   = 230     AfterRenderingDeferredLights = 240
+BeforeRenderingOpaques          = 250     AfterRenderingOpaques        = 300
+BeforeRenderingSkybox           = 350     AfterRenderingSkybox         = 400
+BeforeRenderingTransparents     = 450     AfterRenderingTransparents   = 500
+BeforeRenderingPostProcessing   = 550     AfterRenderingPostProcessing = 600
+AfterRendering                  = 1000
+
+---
+
+UE                                Unity URP
+──                                ─────────
+FDeferredShadingSceneRenderer  ↔  UniversalRenderer 
+FMobileSceneRenderer           ↔  URP Asset 품질 티어
+
+EMeshPass::Type                ↔  Shader pass tag + RenderPassEvent
+FMeshPassProcessor 등록        ↔  ScriptableRendererFeature
+ISceneViewExtension            ↔  RenderPipelineManager 이벤트
+
+FRDGBuilder                    ↔  RenderGraph
+FPrimitiveViewRelevance        ↔  (없음 — shader pass 존재 여부로 암묵 결정)
+
+r.* 콘솔 변수                  ↔  URP Asset 필드
+Scalability Group .ini         ↔  Quality Level별 URP Asset
+
+Post Process Volume            ↔  Volume + VolumeProfile      
+
+Material Editor                ↔  Shader Graph
+
+Show Flags / View Mode         ↔  Rendering Debugger
+ProfileGPU / RenderDoc         ↔  Frame Debugger
+(없음)                         ↔  Render Graph Viewer
+
+---
+
+UCameraComponent
+
+전부 "어떻게 볼 것인가"뿐
+
+FieldOfView
+AspectRatio
+OrthoNearClipPlane / OrthoFarClipPlane
+ECameraProjectionMode
+PostProcessBlendWeight
+
+virtual void GetCameraView(float DeltaTime, FMinimalViewInfo& DesiredView);
+
+---
+
+반면 Unity의 Camera는 targetTexture, cullingMask, clearFlags, depth를 다 갖고,
+URP에서는 더 붙습니다
+
+m_RendererIndex   
+m_RenderShadows
+m_Antialiasing     
+
+UE에서 FSceneViewState(프레임 간 기억)가 담당하던 걸 
+Unity는 Camera 컴포넌트에 매달아 놨습니다
+
+m_History                    
+m_MotionVectorsPersistentData
+
+---
+
+UCameraComponent          "어떻게 볼 것인가"        → FMinimalViewInfo
+       │  APlayerCameraManager가 여러 후보를 블렌딩·선택
+       ▼
+ULocalPlayer::CalcSceneView   "렌더 가능한 뷰로 굳히기"  → FSceneView
+       │
+       ▼
+FSceneViewFamily          "어느 씬을, 어느 뷰들로, 어느 타깃에"
+       │  ← UGameViewportClient가 만든다. 카메라가 아니라.
+       ▼
+FSceneRenderer            "어떻게 그릴 것인가"  ← feature level로 자동 결정
+
+---
+
+Unity는 이 넷을 하나로 합칩니다
+
+Camera + UniversalAdditionalCameraData
+  ├─ 시점        transform, fieldOfView, orthographic, nearClipPlane
+  ├─ 타깃        targetTexture, rect, depth(렌더 순서)
+  ├─ 컬링        cullingMask, layerCullDistances
+  ├─ 뷰 상태     m_History, m_TaaSettings, m_MotionVectorsPersistentData
+  ├─ 합성        m_CameraType(Base/Overlay), m_Cameras(스택)
+  ├─ 후처리      m_RenderPostProcessing, m_Antialiasing, m_VolumeLayerMask
+  └─ 렌더러      m_RendererIndex
+
+---
+
+UE에서 "타깃을 가진 카메라"
+
+USceneCaptureComponent2D 
+
+UTextureRenderTarget2D
+FPostProcessSettings 
+PostProcessBlendWeight
+ECameraProjectionMode
+
+---
+
+UCameraComponent
+USceneCaptureComponent2D
+
+Unity는 둘 다 Camera예요
+targetTexture를 비워두면 화면에
+채워두면 텍스처에
+
+---
+
+사고방식
+
+UE: "이미지는 씬의 함수다"
+이미지 = f(Scene, View)
+
+1급 시민이 FScene입니다
+씬이 먼저 있고, 여러 시점에서 그것을 본다
+
+---
+
+여러 뷰가 한 프레임에 자연스럽게 공존
+스플릿스크린, VR 스테레오
+
+씬 준비 비용이 뷰 간에 공유됩니다
+FScene::UpdateAllPrimitiveSceneInfos와 GPUScene 업로드는 프레임당 한 번
+그 위에서 뷰별 visibility만 따로 돕니다
+
+CameraComponent → PlayerCameraManager → ViewTarget → CalcSceneView → ViewFamily
+
+---
+
+Unity: "카메라는 화면을 만드는 장치다"
+1급 시민이 Camera입니다
+
+각 카메라는 자기 렌더러, 자기 타깃, 자기 후처리, 자기 히스토리
+
+---
+
+결과
+
+카메라 하나 = 파이프라인 호출 한 번
+camera.depth가 곧 렌더 순서
+
+카메라별로 렌더러가 다를 수 있습니다
+3D 카메라 + 2D 카메라 공존
+
+Camera.enabled = false + 수동 렌더라는 관용구가 성립
+
+---
+
+Unity가 UE 쪽으로 조금씩 이동 중
+
+렌더링이 "카메라의 메서드"에서 "파이프라인에 제출하는 요청"으로 바뀌고 있습니다
+
+camera.Render()(카메라가 주어)에서
+RenderPipeline.SubmitRenderRequest(camera, request)
+(파이프라인이 주어, 카메라는 인자)로
+문법적 주어가 바뀐 겁니다
+
+---
+
+Unity의 Retained Scene
+
+네이티브 씬
+
+Transform 계층, Renderer 목록, Light 목록, 
+그리고 컬링 가속 구조가 전부 C++ 쪽에 상주합니다
+
+ScriptableRenderContext.Cull()이 읽는 대상
+
+C#에 노출되는 건 CullingResults
+씬이 아니라 씬을 읽은 결과
+
+---
+
+FScene::Primitives[123]              // FPrimitiveSceneInfo*
+FScene::PrimitiveSceneProxies[123]   // FPrimitiveSceneProxy*
+FScene::PrimitiveBounds[123]
+FScene::PrimitiveOcclusionFlags[123]
+
+---
+
+BatchRendererGroup
+
+BRG는 배치를 등록하면 프레임을 넘어 지속되는 렌더 표현
+Entities Graphics(DOTS)도 이 위에 올라가 있습니다
+
+---
+
+GPU Resident Drawer
+Unity 6
+
+InstanceDataSystem
+  └─ CPUInstanceData              ← FScene의 SoA 배열들에 대응
+
+GPUInstanceDataBuffer
+  └─ GPUInstanceDataUploader      ← FGPUScene::PrimitiveBuffer + 델타 업로드
+
+InstanceAllocator                 ← FPrimitiveSceneInfo::PackedIndex 할당에 대응
+
+LODGroupDataPool                  ← LOD 구조
+
+OcclusionCullingCommon
+  └─ OccluderDepthPyramid         ← HZB
+
+InstanceCullingBatcher
+  ├─ m_DrawBatches / m_DrawInstances / m_DrawRanges / m_NeedsRebuild
+  │                               
+  └─ m_BRG                        ← BatchRendererGroup 위에 구축
+
+---
+
+InstanceDataSystem이 CPU 미러를
+GPUInstanceDataBuffer가 GPU 미러를 들고
+ObjectDispatcher가 dirty 변경분을 매 프레임 밀어 넣습니다
+
+---
+---
+---
+
+uGUI          "UI도 씬의 일부다"       → GameObject + Transform + Renderer
+UI Toolkit    "UI는 별도의 문서다"     → 씬 밖의 retained tree + 자체 렌더 체인
+
+---
+
+Canvas (native)              ← 렌더/배치 단위. 메시 병합의 경계.
+ └─ CanvasRenderer (native)  ← 실제로 메시를 들고 있는 것
+      └─ Graphic (C#)        ← Image / RawImage / Text
+           └─ MaskableGraphic
+
+---
+
+Graphic은 Renderer가 아닙니다. 
+메시를 만들어서 CanvasRenderer에 넘길 뿐
+
+Graphic::DoMeshGeneration 
+
+OnPopulateMesh(s_VertexHelper);
+// ... modifier들 적용 ...
+canvasRenderer.SetMesh(workerMesh)
+
+---
+
+Graphic::UpdateMaterial
+
+canvasRenderer.SetMaterial(materialForRendering, 0);
+canvasRenderer.SetTexture(mainTexture);
+
+---
+
+UI Toolkit
+씬 그래프 밖의 retained tree
+
+UIDocument (MonoBehaviour)   ← 씬과의 유일한 접점
+ └─ PanelSettings (asset)    ← 렌더 설정 전체
+      └─ Panel
+           └─ VisualElement tree   ← GameObject 아님, Transform 없음
+
+---
+
+VisualElement는 GameObject도 Component도 아닙니다
+UI Toolkit은 자기만의 씬 그래프를 갖습니다
+
+Unity 씬 옆에 지어진 또 하나의 retained scene
+
+---
+
+NudgeVerticesToNewSpace
+
+요소가 움직였을 때 vertex buffer를 재생성하지 않고 
+기존 정점을 새 공간으로 밀어주는 최적화
+
+---
+
+uGUI        "Canvas를 쪼개라"        ← rebuild 범위를 줄이려고
+UI Toolkit  "Vertex Budget을 키워라" ← batch를 합치려고
+
+---
+
+ScriptableObject
+ScriptableRenderContext
+ScriptableRenderer
+ScriptableRenderPass
+
+---
+
+ScriptableRenderContext
+
+RenderPipeline.Render()에 Unity가 전달하는 구조체
+
+네이티브 포인터 IntPtr m_Ptr을 보유하고
+Submit, Cull, 드로잉 호출은 extern 바인딩으로 넘어갑니다
+
+---
+
+일반 C# 클래스는 가볍고 자유롭지만, 
+그 인스턴스가 독립된 Unity 에셋이 되거나 
+Inspector에서 프로젝트 전체가 공유하는 객체로 참조되지는 않습니다
+
+---
+
+MonoBehaviour는 Unity 직렬화와 Inspector를 사용할 수 있지만 
+GameObject의 Component로 붙어야 합니다
+
+---
+
+ScriptableObject는 Unity 객체이면서도 GameObject가 필요 없습니다
+
+UnityEngine.Object의 정체성·직렬화·참조
+사용자가 정의한 C# 타입과 메서드
+
+GameObject와 독립적으로 존재하는 객체를 만들기 위해 상속하는 클래스
+
+---
+
+적 1,000개의 공격력, 이동 속도, 아이콘, 사운드 설정이 모두 같다면,
+각 Prefab의 MonoBehaviour에 같은 값을 복사하기보다 
+하나의 EnemyDefinition ScriptableObject 에셋을 참조하게 만들 수 있습니다
+
+설정 하나를 바꾸면 그것을 참조하는 모든 객체가 같은 변경을 사용합니다
+
+---
+
+아이템, 스킬, 적, 무기, 퀘스트 등의 정의 데이터
+렌더링·오디오·게임플레이 설정
+교체 가능한 전략, 규칙, AI 행동처럼 메서드를 가진 정책 객체
+
+---
+
+반드시 .asset 파일이어야 하는 것은 아닙니다.
+CreateInstance<T>()로 메모리에만 생성할 수도 있습니다.
+
+---
+
+ScriptableObject
+
+Object
+Unity Object
+
+Scriptable
+사용자 스크립트로 구체적인 타입·데이터·동작을 정의
+
+---
+
+ScriptableSingleton<T>
+
+Editor state를 저장하는 generic class
+
+직렬화된 데이터는 어셈블리 재로딩을 견디고 
+[FilePath]를 사용하면 Unity 재시작 사이에도 유지된다
+
+---
+
+Unity가 스크립트를 다시 컴파일하고 
+어셈블리 또는 도메인을 다시 로드하면 정적 필드는 초기화됩니다
+
+에디터 도구가 가지고 있던 선택 상태, 검색 필터, 프로젝트 설정 등이 사라질 수 있습니다
+
+---
+
+1 instance에 처음 접근하면 CreateAndLoad()를 호출합니다.
+2 [FilePath]가 있고 저장 파일이 존재하면 역직렬화합니다.
+3 저장 파일이 없으면 CreateInstance<T>()로 ScriptableObject를 생성합니다.
+4 도메인 재로드 중 ScriptableObject가 백업에서 복원되면 생성자가 다시 s_Instance를 연결합니다.
+5 Save(bool)을 호출하면 지정된 파일에 현재 상태를 기록합니다.
+
+[FilePath]가 없으면 Save()는 효과가 없습니다
+
+---
+
+Unity는 오픈소스 Mono 프로젝트의 자체 포크를 C# 스크립팅 런타임으로 사용합니다
+MonoBehaviour의 네이티브 헤더 경로 Runtime/Mono/MonoBehaviour.h
+
+현재는 IL2CPP로 빌드해도 여전히 MonoBehaviour를 사용합니다. 
+즉 오늘날의 MonoBehaviour는 특정 빌드 백엔드를 요구한다기보다, 
+역사적 이름이 유지된 C# 스크립트 Component 기반 클래스
+
+---
+
+System.Object
+└─ UnityEngine.Object
+   ├─ GameObject
+   ├─ Component
+   │  └─ Behaviour
+   │     └─ MonoBehaviour
+   │        └─ 사용자 정의 Component 스크립트
+   │
+   └─ ScriptableObject
+      └─ 사용자 정의 독립 Unity Object
+
+---
+
+Scene 계층과 공간 변환
+
+UnityEngine.Object
+├─ GameObject
+│
+└─ Component
+   └─ Transform
+      └─ RectTransform
+
+---
+
+UnityEngine.Object
+└─ Component
+   ├─ Behaviour
+   │  ├─ Camera
+   │  ├─ Light
+   │  └─ ReflectionProbe
+   │
+   ├─ MeshFilter
+   ├─ LODGroup
+   ├─ OcclusionArea
+   ├─ OcclusionPortal
+   │
+   └─ Renderer
+      ├─ MeshRenderer
+      ├─ SkinnedMeshRenderer
+      └─ BillboardRenderer
+
+---
+
+UnityEngine.Object
+├─ Mesh
+├─ Material
+├─ Sprite
+├─ Flare
+├─ BillboardAsset
+│
+├─ Shader
+├─ ComputeShader
+├─ RayTracingShader
+├─ ShaderVariantCollection
+│
+├─ Texture
+│  ├─ Texture2D
+│  ├─ Texture3D
+│  ├─ Texture2DArray
+│  ├─ Cubemap
+│  ├─ CubemapArray
+│  ├─ SparseTexture
+│  ├─ WebCamTexture
+│  └─ RenderTexture
+│     └─ CustomRenderTexture
+│
+├─ LightingSettings
+├─ LightmapSettings
+└─ LightProbes
+
+---
+
+UnityEngine.Object
+└─ ScriptableObject
+   ├─ RenderPipelineAsset
+   │  └─ RenderPipelineAsset<T>
+   │     └─ UniversalRenderPipelineAsset
+   │
+   ├─ RenderPipelineGlobalSettings
+   │
+   ├─ VolumeProfile
+   ├─ VolumeComponent
+   │  └─ 각종 Volume Override
+   │
+   ├─ ScriptableRendererData
+   │  ├─ UniversalRendererData
+   │  └─ Renderer2DData
+   │
+   └─ ScriptableRendererFeature
+      └─ 사용자 정의 Renderer Feature
+
+---
+
+UnityEngine.Object
+└─ Component
+   ├─ Behaviour
+   │  ├─ MonoBehaviour
+   │  │  └─ Light2DBase
+   │  │
+   │  └─ GridLayout
+   │     ├─ Grid
+   │     └─ Tilemap
+   │
+   └─ Renderer
+      ├─ SpriteRenderer
+      ├─ SpriteMask
+      └─ TilemapRenderer
+
+---
+
+UnityEngine.Object
+└─ Component
+   ├─ ParticleSystem
+   │
+   ├─ Behaviour
+   │  └─ VisualEffect
+   │
+   └─ Renderer
+      ├─ LineRenderer
+      ├─ TrailRenderer
+      ├─ ParticleSystemRenderer
+      └─ VFXRenderer
+
+---
+
+UnityEngine.Object
+└─ Component
+   ├─ Rigidbody
+   ├─ Cloth
+   │
+   ├─ Behaviour
+   │  └─ ArticulationBody
+   │
+   ├─ Collider
+   │  ├─ BoxCollider
+   │  ├─ SphereCollider
+   │  ├─ CapsuleCollider
+   │  ├─ MeshCollider
+   │  ├─ TerrainCollider
+   │  ├─ WheelCollider
+   │  └─ CharacterController
+   │
+   └─ Joint
+      ├─ FixedJoint
+      ├─ HingeJoint
+      ├─ SpringJoint
+      ├─ CharacterJoint
+      └─ ConfigurableJoint
+
+---
+
+UnityEngine.Object
+├─ Component
+│  ├─ Rigidbody2D
+│  │
+│  └─ Behaviour
+│     ├─ Collider2D
+│     │  ├─ BoxCollider2D
+│     │  ├─ CircleCollider2D
+│     │  ├─ CapsuleCollider2D
+│     │  ├─ PolygonCollider2D
+│     │  ├─ EdgeCollider2D
+│     │  ├─ CompositeCollider2D
+│     │  ├─ CustomCollider2D
+│     │  └─ TilemapCollider2D
+│     │
+│     └─ Joint2D
+│        ├─ AnchoredJoint2D
+│        │  ├─ DistanceJoint2D
+│        │  ├─ FixedJoint2D
+│        │  ├─ FrictionJoint2D
+│        │  ├─ HingeJoint2D
+│        │  ├─ SliderJoint2D
+│        │  ├─ SpringJoint2D
+│        │  └─ WheelJoint2D
+│        │
+│        ├─ RelativeJoint2D
+│        └─ TargetJoint2D
+│
+└─ PhysicsMaterial2D
+
+3D 물리와 달리 Collider2D와 Joint2D는 Behaviour 계층입니다.
+
+---
+
+UnityEngine.Object
+└─ Component
+   └─ Behaviour
+      ├─ Animation
+      ├─ Animator
+      └─ PlayableDirector
+
+---
+
+UnityEngine.Object
+├─ Motion
+│  └─ AnimationClip
+│
+├─ RuntimeAnimatorController
+│  └─ AnimatorOverrideController
+│
+├─ Avatar
+├─ AvatarMask
+│
+└─ ScriptableObject
+   ├─ StateMachineBehaviour
+   └─ PlayableAsset
+
+---
+
+UnityEngine.Object
+├─ Component
+│  └─ Behaviour
+│     └─ AudioBehaviour
+│        ├─ AudioListener
+│        └─ AudioSource
+│
+└─ AudioResource
+   └─ AudioClip
+
+---
+
+UnityEngine.Object
+├─ Component
+│  └─ Behaviour
+│     └─ VideoPlayer
+│
+└─ VideoClip
+
+---
+
+UnityEngine.Object
+└─ Component
+   ├─ Transform
+   │  └─ RectTransform
+   │
+   ├─ CanvasRenderer
+   ├─ TextMesh
+   │
+   └─ Behaviour
+      ├─ Canvas
+      ├─ CanvasGroup
+      │
+      └─ MonoBehaviour
+         ├─ UIDocument
+         └─ PanelInputConfiguration
+
+---
+
+UnityEngine.Object
+├─ Font
+│
+└─ ScriptableObject
+   ├─ GUISkin
+   ├─ PanelSettings
+   ├─ StyleSheet
+   ├─ VisualTreeAsset
+   └─ VectorImage
+
+---
+
+UnityEngine.Object
+├─ Component
+│  └─ Behaviour
+│     ├─ NavMeshAgent
+│     ├─ NavMeshObstacle
+│     └─ OffMeshLink
+│
+└─ NavMeshData
+
+---
+
+UnityEngine.Object
+├─ Component
+│  ├─ Behaviour
+│  │  └─ Terrain
+│  │
+│  ├─ Collider
+│  │  └─ TerrainCollider
+│  │
+│  ├─ Tree
+│  └─ WindZone
+│
+├─ TerrainData
+└─ TerrainLayer
