@@ -1,0 +1,1319 @@
+Input Manager + Input 클래스
+권장하지 않으며 향후 버전에서 제거된다
+
+물리 장치를 직접 읽지 말고, 이름 붙인 축 하나를 읽자는 발상
+
+Input.GetAxis("Horizontal")
+키보드든 조이스틱이든 −1..1 값이 나옵니다
+
+---
+
+프로젝트의 InputManager 설정 에셋에 축 배열이 직렬화됩니다
+
+키보드는 눌림/안 눌림 두 값밖에 없는데(digital)
+아날로그 스틱처럼 부드러운 −1..1을 흉내 내야 하니 
+소프트웨어로 보간
+
+---
+
+폴링(polling, 매 프레임 현재 상태를 물어보는 방식)이라 
+프레임 사이에 눌렸다 떼진 입력은 사라집니다
+
+장치 핫플러그(실행 중 연결/해제) 감지가 없습니다.
+
+런타임 리바인딩 API가 없습니다
+
+---
+---
+---
+
+uGUI EventSystem (2014, Unity 4.6)
+입력을 "읽는 쪽"과 "전달하는 쪽"의 분리
+
+EventSystem이 라우팅을 담당
+실제 입력 읽기는 교체 가능한 BaseInputModule 구현체
+(StandaloneInputModule, TouchInputModule)
+
+레이캐스트는 Raycaster
+데이터 운반은 PointerEventData
+
+훗날 InputSystemUIInputModule을 그 자리에 통째로 꽂아 넣는 것만으로 
+UI 전체가 새 백엔드로 넘어갈 수 있었습니다
+
+---
+
+2016년 4월
+Unity Input Team
+
+저수준(low-level)은 Unity의 C++ 코어에 통합
+고수준(high-level)은 C#으로 구현하고 UI 시스템처럼 오픈소스로 공개
+
+실행 중 장치 연결/해제 감지 같은 건 새 저수준 코어가 필요
+
+---
+
+Input System 패키지 (2018~2020)
+
+Native backend
+플랫폼별 C++ 코드이며 패키지가 아니라 엔진 본체에 들어 있습니다
+장치 발견·제거·상태 변화를 event로 올려보내는데
+이걸 "raw unmanaged memory의 스트림"으로 보낸다
+
+unmanaged memory는 C# 가비지 컬렉터(GC)가 관리하지 않는 메모리로, 
+매 프레임 객체를 만들지 않아 GC 부하가 0이 됩니다
+
+반대 방향으로는 command라는 메모리 버퍼를 장치에 내려보냅니다(진동, LED 색 등)
+
+---
+
+실무적 결론
+플랫폼별 입력 버그는 패키지를 업데이트해도 안 고쳐지고 엔진을 올려야 합니다
+
+---
+
+이벤트 스트림을 해석해 새 장치를 만들고
+state event가 오면 그 장치의 상태 메모리에 그대로 씁니다
+
+이 층에서 장치는 그냥 raw memory block
+
+---
+
+layout이 그 메모리를 "어떻게 읽을지" 기술합니다
+
+---
+
+모든 장치의 상태가 하나의 unmanaged 메모리 블록을 공유
+
+그리고 값이 자연스러운 형식으로 저장되지 않습니다
+버튼은 비트필드, 축은 8비트나 16비트 정수
+
+그 형식은 플랫폼·하드웨어·드라이버가 정하는 대로
+
+Unity는 변환하지 않고 하드웨어가 준 그대로 담아둔 뒤, 
+컨트롤이 읽을 때 자기 layout을 보고 해석
+
+각 컨트롤은 stateBlock으로 자기 데이터의 offset·format·size를 알고 있습니다.
+
+---
+
+레거시가 "일단 float로 정규화해서 축에 담는다"였다면, 
+새 시스템은 "원본 비트를 그대로 두고 해석 규칙을 붙인다"입니다. 
+
+복사도 변환도 미루니까 zero-allocation이 가능해집니다.
+
+---
+
+layout은 C# struct + attribute로, JSON으로, 또는 builder API로 정의할 수 있고 
+상속과 override를 지원
+
+HID(Human Interface Device, USB 표준 입력장치 규격)처럼 정체를 모르는 장치는 
+장치가 스스로 보고한 디스크립터를 읽어 런타임에 layout을 생성합니다. 
+
+하드코딩 enum이 여기서 완전히 사라집니다. 
+최근 버전에는 layout을 C# 코드로 미리 구워 장치 생성 속도를 올리는 precompiled layout도 들어왔습니다.
+
+---
+
+Action 계층
+
+Control(물리적 입력)을 Action(게임에서의 의미)에 binding으로 연결하고, 
+시스템이 변화를 감시하다 콜백으로 알려줍니다.
+
+여기에 두 개의 훅이 붙습니다.
+
+Processor — 값을 가공. deadzone, invert, scale 등
+Interaction — 입력의 패턴을 인식. hold, tap, multi-tap 등
+
+---
+
+"두 번 빠르게 눌렀는가"를 게임 코드에서 타이머 돌려 세지 않고 
+바인딩 설정으로 해결하는 게 이 층의 존재 이유
+
+여기에 control path 문자열(<Gamepad>/leftStick 같은)과 
+usage 태그({Submit})로 장치를 특정하지 않고 의미로 바인딩할 수 있습니다
+
+---
+
+그 위에 control scheme, InputUser, PlayerInput, PlayerInputManager가 얹혀 
+장치 페어링과 로컬 멀티플레이를 담당
+
+---
+
+2023.2 ~ Unity 6
+Project-wide Actions
+
+이전에는 프로젝트마다 .inputactions 에셋을 만들고 컴포넌트에 물려주는 보일러플레이트가 필요했습니다. 
+
+프로젝트 전역 액션 에셋(InputSystem_Actions.inputactions) 하나가 기본으로 존재하고, 
+Project Settings에 액션 에디터가 내장됩니다. 
+
+---
+
+InputForUI 모듈
+
+UI Toolkit이 레거시든 새 패키지든 신경 쓰지 않고 입력에 대해 단 하나의 의존성만 갖도록 하는 어댑터 층
+
+EventProvider, EventConsumer, InputEventPartialProvider
+레거시 백엔드용 InputManagerProvider(내부에 InputManagerGetAxisRawOrDefault, InputManagerGetButtonDownOrDefault 같은 심볼까지)
+
+---
+---
+---
+
+모바일에서 대체재가 없는 것들
+
+Input.location (GPS) — 대체 API 없음
+Input.compass (나침반 heading) — 대체 API 없음
+Input.deviceOrientation — 대체 API 없음
+Input.backButtonLeavesApp (Android 뒤로가기 동작) — 대체 API 없음
+
+Input.multiTouchEnabled, Input.simulateMouseWithTouches, 
+Input.touchPressureSupported, Input.stylusTouchSupported — 대체 API 없음
+
+---
+
+TouchControl
+
+position, delta, startPosition, startTime, 
+press, pressure, radius, touchId, phase
+OS가 인식한 tap과 tapCount까지
+
+---
+
+멀티터치를 액션 하나로 묶을 수 있습니다
+
+<Touchscreen>/touch*/press 같은 와일드카드 바인딩이 가능
+
+---
+
+함정
+
+Touchscreen을 Update에서 직접 폴링하면 안 됩니다. 
+Update나 FixedUpdate에서 Touchscreen 상태를 직접 읽으면 프레임 사이의 터치 상태 변화를 놓칩니다
+
+폴링이 필요하면 EnhancedTouch를 쓰고, 그러려면 EnhancedTouchSupport.Enable()을 명시적으로 호출해야 합니다
+(기록 오버헤드 때문에 기본 꺼짐)
+
+다만 Touch/Finger API 자체는 unmanaged 메모리와 사전 할당 배열을 쓰므로 GC 쓰레기는 만들지 않습니다
+
+---
+
+터치가 마우스를 구동하지 않습니다. 
+레거시는 simulateMouseWithTouches가 기본 참이라 터치가 Input.mousePosition을 움직였습니다
+
+새 시스템은 그 기능이 아직 구현되지 않았다고 문서에 명시돼 있습니다
+
+대신 Touchscreen이 Pointer를 상속하므로 <Pointer>/position, <Pointer>/press에 바인딩하면 
+마우스·펜·터치가 한 액션으로 들어옵니다
+
+크로스 플랫폼 입력은 Mouse가 아니라 Pointer에 바인딩하는 게 정석
+
+---
+
+Android 뒤로가기
+
+Input.backButtonLeavesApp 대응물이 없습니다
+직접 처리해야 합니다
+
+---
+
+Layer A — 단일 포인터: Action으로 처리. 마우스·터치가 자동 통합됩니다.
+Layer B — 멀티터치 제스처: EnhancedTouch를 직접 읽어 상태 기계로 처리
+Layer C — Intent: 위 둘이 만들어내는 게임 의미(Grab, Drag, Drop, Zoom, Pan)
+게임 로직은 이 경계 위쪽만 봅니다
+
+---
+
+Layer A — Mouse가 아니라 Pointer에 바인딩
+데스크톱에서 마우스로, 모바일에서 터치로
+
+Touchscreen은 Pointer를 상속합니다
+Mouse, Pen, Touchscreen이 position, delta, press, pressure, radius라는 공통 컨트롤을 갖습니다
+
+Board/Point  (Value, Vector2)  ←  <Pointer>/position
+Board/Press  (Button)          ←  <Pointer>/press
+
+
+---
+
+Mouse에 바인딩하면 안 되는 이유
+새 시스템은 터치→마우스 시뮬레이션이 아직 구현되지 않았습니다
+
+Mouse.current에 의존하면 모바일에서 아무것도 안 옵니다
+
+---
+
+탭과 롱프레스는 Press 액션에 Tap / Hold interaction을 겁니다
+
+TouchControl에 OS가 준 tap, tapCount가 있긴 한데 그건 터치 전용이라 마우스에 없습니다.
+양쪽 통일이 목적이면 interaction 쪽
+
+---
+
+Layer B — 제스처
+
+// BoardGestureSource::OnEnable - 제스처 인식에 필요한 EnhancedTouch를 켠다.
+// 문서상 기록 오버헤드가 있으므로 보드 씬에서만 켜고 나갈 때 끈다.
+
+void OnEnable()  => EnhancedTouchSupport.Enable();
+void OnDisable() => EnhancedTouchSupport.Disable();
+
+---
+
+Touchscreen을 Update에서 직접 폴링하면 안 됩니다
+프레임 사이의 터치 상태 변화를 놓칩니다
+
+폴링이 필요하면 반드시 EnhancedTouch.Touch를
+EnhancedTouchSupport.Enable()
+
+---
+
+두 번째 손가락이 닿는 순간 진행 중이던 드래그를 취소로 종료해야 합니다
+안 그러면 핀치하려는데 조각이 딸려옵니다
+
+Layer A와 Layer B 사이의 조정이므로 Intent 계층에서 중재하는 게 깔끔
+
+---
+
+손가락을 하나 떼면 남은 하나로 자연스럽게 팬이 이어지도록 할지, 아니면 제스처를 끝낼지 정해두세요
+사용자가 두 손가락을 정확히 동시에 떼지 않기 때문에 이 처리가 없으면 확대 후 판이 튑니다
+
+---
+
+데스크톱 대체 매핑 — Intent로 수렴시키기
+
+핀치줌 → 마우스 휠 (<Mouse>/scroll/y)
+팬 → 중클릭 드래그, 또는 스페이스 + 드래그
+
+Intent는 Zoom(float delta)와 Pan(Vector2 delta) 두 개
+그걸 만드는 소스가 플랫폼별로 다를 뿐
+
+게임 로직에 #if UNITY_ANDROID 같은 게 들어가기 시작하면 이미 설계가 샌 것
+
+---
+
+임계값을 픽셀로 하드코딩하지 말 것
+
+드래그 시작 임계값을 4픽셀로 잡으면, 데스크톱에서는 적당한 거리인데 
+400ppi 폰에서는 눈에 보이지도 않는 거리라 살짝만 스쳐도 드래그가 시작됩니다
+
+Screen.dpi로 나눠 물리 단위(mm 또는 inch) 기준으로 잡으세요
+dpi를 알 수 없는 플랫폼에서 0을 반환할 수 있으니 폴백 값이 필요
+
+---
+
+Project Settings의 Tap Radius도 같은 문제를 갖습니다
+이 값은 "같은 터치의 탭인지 새 터치인지" 판정에 쓰이는 픽셀 거리라, 
+타깃 기기 해상도를 보고 조정해야 합니다.
+
+---
+
+UI와의 충돌 차단
+
+보드 입력이 UI 버튼 위에서도 먹히면 안 되죠
+
+판정은 EventSystem.current.IsPointerOverGameObject()인데 터치에서는 인자가 필요
+
+인자 없이 호출 → 아무 포인터라도 UI 위면 true
+개별 touchId 전달 → 그 손가락만 판정
+Touchscreen.current.deviceId 전달 → 그 터치스크린의 아무 터치나 UI 위면 true
+
+---
+
+InputAction.performed 같은 액션 콜백 안에서 이 함수를 부르면 경고가 납니다. 
+UI는 입력 처리가 끝난 뒤에 별도로 갱신되기 때문에, 
+콜백 시점의 UI 상태는 이전 프레임 것
+
+---
+
+콜백에서는 "이런 입력이 있었다"만 큐에 넣고, Update에서 UI 판정과 함께 소비
+보드 히트 판정을 UI에 의존하지 않고 자체 레이캐스트로 처리
+
+이 판정을
+uGUI로 가면 EventSystem 구현체를, UI Toolkit으로 가면 panel 쪽 구현체를 끼우면 됩니다
+
+---
+
+Active Input Handling: Input System Package (New)
+Supported Devices: Mouse, Keyboard, Touchscreen만 등록
+
+목록에서 빼면 장치 자체가 생성되지 않습니다
+불필요한 이벤트 처리가 사라집니다
+
+이 목록을 좁히면 에디터에서도 그 장치만 붙습니다.
+나중에 태블릿으로 확인할 일이 생기면 Input Debugger의 "Add Devices Not Listed in 'Supported Devices'"로 우회
+
+---
+
+Update Mode
+
+Process Events In Dynamic Update
+
+---
+
+센서는 기본 비활성
+InputSystem.EnableDevice()를 부르지 않으면 켜지지 않습니다
+
+---
+
+PlayerInput 컴포넌트는 쓰지 않는 쪽
+
+싱글플레이어 퍼즐에 control scheme 자동 전환은 이득보다 사고를 냅니다
+(마우스와 터치 사이를 오가며 페어링이 바뀌는 문제)
+
+Start에서 InputSystem.actions.FindAction("Board/Point")로 참조를 한 번 잡아두고 
+매 프레임 ReadValue만 하는 게 단순하고 빠릅니다
+
+---
+
+UX
+
+호버가 없습니다
+
+우클릭이 없습니다
+데스크톱 보조 동작은 처음부터 롱프레스(Hold)로 설계
+
+손가락이 화면을 가립니다
+드래그 중인 조각을 손가락 위로 오프셋하는 처리가 모바일에만 필요합니다.
+이건 Intent가 아니라 표현 계층에서 처리
+
+히트 영역을 시각 크기와 분리
+모바일에서 시각은 그대로 두고 
+히트 영역만 키울 수 있어야 합니다
+
+---
+
+Input Device
+물리적 하드웨어 하나에 대응하는 표현
+
+중요한 건 Device도 Control이라는 점
+Device는 컨트롤 트리의 루트
+
+---
+
+Control
+actuate되면 값을 보내는, device의 개별 부분
+
+게임패드의 버튼·스틱·트리거 하나하나
+마우스의 X/Y 센서와 버튼과 휠 각각이 Control
+
+---
+
+Control은 계층을 이룹니다
+
+leftStick은 그 자체로 Vector2 컨트롤이면서 자식으로 x, y를 갖습니다
+그래서 경로가 <Gamepad>/leftStick/x처럼 파일 경로를 닮았습니다
+
+---
+
+Actuation
+지금 이 컨트롤이 사용자에 의해 쓰이고 있는가
+기본값에서 벗어났으면 actuated
+
+트리거를 살짝 당기면 actuated이지만 
+press threshold를 안 넘었으면 pressed는 아닙니다
+
+---
+
+Noisy control
+
+사용자가 아무것도 안 해도 값이 변하는 컨트롤
+가속도계나 자이로가 대표적
+
+DualShock은 내장 자이로 때문에 가만히 둬도 입력을 계속 뿜습니다
+
+---
+
+입력이 들어온 장치가 .current가 되는데, 
+노이지 장치가 계속 자기를 .current로 밀어올립니다
+
+Project Settings에 Filter Noise On Current 옵션이 있습니다
+
+.current를 안 쓰면 켜지 마세요
+문서가 "쓸데없는 오버헤드"라고 명시
+
+---
+
+Synthetic control
+
+물리 컨트롤이 아니라 다른 컨트롤 값에서 합성해낸 가상 컨트롤
+
+스틱의 up/down/left/right, 키보드의 anyKey 같은 것들
+
+하드웨어에 그런 부품이 없지만 컨트롤처럼 바인딩할 수 있습니다
+
+---
+
+State
+
+컨트롤의 현재 값이 저장된 메모리 블록
+모든 장치가 하나의 unmanaged 메모리 블록을 공유
+
+각 컨트롤은 stateBlock으로 자기 데이터의 offset·format·size를 압니다
+
+---
+
+Layout
+
+그 메모리를 어떻게 읽을지 기술하는 명세
+
+State가 "무엇이 저장돼 있나"라면
+Layout은 "그걸 어떻게 해석하나"
+
+---
+
+정의 방법
+
+C# struct에 attribute 붙이기
+JSON
+builder API
+
+미리 C# 코드로 구워두는 precompiled layout도 있습니다
+(장치 생성 속도용)
+
+---
+
+Event
+
+네이티브 백엔드가 올려보내는 raw unmanaged 메모리 스트림
+
+장치 추가/제거 알림과 상태 변화(state event)가 이 형태로 옵니다. 
+
+반대 방향은 Command
+진동, LED 색 같은 걸 장치로 내려보내는 메모리 버퍼
+
+---
+---
+---
+
+Control Path
+
+문자열로 컨트롤을 지목하는 문법
+<layoutName>{usageName}#(displayName)controlName
+
+---
+
+<Gamepad>
+
+layout 기준 매칭
+중요한 건 그 layout을 상속한 것도 매칭된다는 점
+
+<Gamepad>는 DualShock도 Xbox 패드도 잡습니다
+
+---
+
+{}
+
+위치에 따라 의미가 다릅니다
+
+경로의 첫 컴포넌트(장치 자리)에 오면 장치 usage(<XRController>{LeftHand})
+두 번째에 오면 컨트롤 usage(<Gamepad>/{Submit}).
+
+---
+
+#(a)
+
+displayName 기준
+
+<Keyboard>/#(a)는 "현재 키보드 레이아웃에서 a를 찍는 키"
+QWERTY/AZERTY 문제를 이걸로 다룹니다
+
+---
+
+controlName
+
+이름 또는 alias
+* 와일드카드 가능
+
+---
+
+퍼즐 게임에서 쓸 <Touchscreen>/touch*/press가 바로 이 와일드카드
+touch0부터 하나씩 안 적어도 됩니다
+
+---
+
+Usage
+
+이름이 아니라 역할로 가리키는 방법.
+{Submit}, {Cancel}, {Back}, {LeftHand} 같은 관례적 이름표
+
+장치 종류를 몰라도 "확인 버튼"을 지목할 수 있습니다
+
+*/{Submit}은 아무 장치의 Submit 컨트롤 전부를 잡습니다
+
+---
+
+Binding
+
+Control Path와 Action을 잇는 연결 하나
+
+Normal binding
+control path로 컨트롤에 직접 붙습니다
+
+Composite binding
+컨트롤에 직접 붙지 않습니다
+자기 아래의 Part binding들에게서 값을 받아 합성한 값을 내놓습니다
+
+---
+
+Binding Resolution
+
+문자열 경로를 지금 실제로 연결된 장치의 실제 컨트롤 목록으로 바꾸는 과정
+
+---
+
+액션에 처음 접근할 때 일어납니다. 미리 해두는 게 아닙니다
+경로 하나가 여러 컨트롤에 매칭될 수 있습니다
+같은 컨트롤이 여러 바인딩으로 들어오면 여러 번 먹입니다
+
+---
+
+액션이 활성화된 상태에서 재해석이 일어날 때 부작용이 있습니다
+
+장치 추가/제거는 대체로 조용히 처리됩니다
+단, 진행 중인 액션의 activeControl이 속한 장치가 빠지면 그 액션은 자동으로 cancel됩니다
+
+반면 바인딩 자체를 수정하거나 bindingMask를 바꾸면 
+활성 액션이 전부 잠시 비활성화됐다가 재활성화됩니다
+런타임 리바인딩 기능을 만들 때 이걸 모르면 원인 모를 입력 끊김을 만납니다
+
+---
+
+Action
+
+이름은 동사로 짓는 게 관례입니다 — Move, Jump, Fire, Submit
+액션은 런타임 전용 기능입니다. 에디터 윈도우 코드에서는 못 씁니다
+
+---
+
+Action Type
+상태 변화를 어떻게 처리할지
+
+Value — 연속적으로 변하는 값
+Button — 이산적인 on/off.
+PassThrough — 여러 컨트롤을 하나로 합치지 않고 각각 그대로 통과시킴
+
+---
+
+Control Type
+어떤 값 타입을 받을지
+
+float, Vector2, Vector3, 
+그리고 Stick·Dpad·Touch 같은 더 좁은 타입들
+
+---
+
+Phase
+액션이 오가는 상태
+
+Waiting → Started → Performed → Canceled
+Disabled
+
+Action Type에 따라 페이즈가 다르게 흐릅니다
+
+---
+
+Value 타입의 기본 동작
+
+컨트롤이 actuate되는 순간 Waiting → Started → 즉시 Performed → 다시 Started
+즉 첫 프레임에 started 1회 + performed 1회가 옵니다.
+
+actuate 상태가 유지되는 동안은 Started에 머물면서, 값이 변할 때마다 performed
+actuate가 끝나면 Canceled 후 Waiting
+
+---
+
+Button 타입의 기본 동작
+
+actuate 시작 → started. 아직 press threshold를 넘지 않았을 수 있습니다
+press threshold 도달 → performed
+release threshold 아래로 → canceled
+
+threshold를 못 넘고 손을 떼면 performed 없이 canceled만 옵니다
+
+---
+
+started는 "눌렸다"가 아닙니다. "뭔가 움직이기 시작했다"입니다. 
+트리거를 살짝 건드리기만 해도 started가 옵니다.
+
+---
+
+PassThrough 타입의 기본 동작
+
+started와 canceled를 아예 쓰지 않습니다.
+값이 변할 때마다 performed만 옵니다
+
+canceled는 액션이 disable될 때 옵니다
+
+---
+
+여러 컨트롤이 각각 독립적으로 들어와야 할 때
+<Touchscreen>/touch*/press처럼 와일드카드로 여러 손가락을 묶었다면, 
+PassThrough여야 손가락마다 콜백이 옵니다
+
+Value로 두면 시스템이 "하나의 값"으로 합쳐버립니다
+
+---
+
+Interaction
+actuation의 시간적 패턴
+
+"버튼이 눌렸나"가 아니라 "어떤 식으로 눌렸나"입니다. 
+짧게 톡? 길게 꾹? 빠르게 두 번?
+
+내장 종류: Press, Hold, Tap, SlowTap, MultiTap
+
+붙이는 위치가 둘입니다
+액션에 붙이면 그 액션의 모든 바인딩에
+개별 바인딩에 붙이면 그 바인딩에만
+
+---
+
+여러 개를 쌓을 수 있고, 순서가 동작을 바꿉니다. 
+위에서부터 순서대로 검사하고, 한 번에 하나만 액션을 "몰고" 있습니다
+(즉 페이즈를 결정합니다)
+
+위쪽이 cancel하면 아래쪽이 인수합니다
+
+---
+
+Tap/MultiTap/Hold 순서와 Hold/MultiTap/Tap 순서는 결과가 다릅니다
+
+---
+
+어느 interaction이 왔는지 콜백에서 구분해야 합니다
+같은 액션에 두 interaction이 붙었을 때 콜백에서 어느 쪽이 발동했는지 구분
+
+jumpAction.performed += context =>
+{
+    if (context.interaction is SlowTapInteraction) { /* 충전 점프 */ }
+    else { /* 일반 점프 */ }
+};
+
+---
+
+타임아웃 진행률을 조회할 수 있습니다
+
+0..1 사이 값. 홀드 게이지 UI에 그대로 꽂으면 된다
+var completion = action.GetTimeoutCompletionPercentage()
+
+---
+
+Interaction이 시간축이라면 Processor는 값축
+
+deadzone, invert, scale, normalize, clamp
+
+컨트롤 → Processor(값 가공) → 충돌 해소 → Interaction(패턴 판정) → 콜백
+
+---
+
+Control Conflict Resolution
+
+한 액션에 여러 컨트롤이 물렸을 때 하나의 값으로 합치는 로직
+
+---
+
+Action Map
+
+상황별 액션 묶음
+통째로 enable/disable할 수 있다는 게 존재 이유
+게임플레이 중엔 Player 맵, 메뉴에선 UI 맵
+
+---
+
+Action Asset — 맵·액션·바인딩 구성을 담은 에셋 파일
+
+---
+
+Project-wide Actions — 프로젝트에 하나 지정하는 대표 에셋
+
+InputSystem.actions로 코드에서 바로 접근합니다
+Unity 6 기본값이고, UI Toolkit이 여기 있는 "UI" 맵을 자기 입력으로 씁니다
+
+---
+---
+---
+
+① 장치를 직접 읽기 (Direct)
+
+if (Mouse.current.leftButton.wasPressedThisFrame)
+
+② 액션 사용 (Actions)
+
+Actions Editor에서 액션과 바인딩을 구성 
+→ Start에서 참조를 잡고 
+→ Update에서 값을 읽음
+
+③ 액션 + PlayerInput 컴포넌트
+
+액션을 인스펙터에서 직접 핸들러 메서드에 연결할 수 있고
+로컬 멀티플레이의 장치 배정과 분할 화면 기능이 붙습니다
+
+---
+
+Unreal Enhanced Input
+
+UInputAction (IA) ↔ InputAction
+EInputActionValueType ↔ Control Type
+
+UInputTrigger ↔ Interaction
+UInputModifier ↔ Processor
+
+EnhancedInputComponent::BindAction ↔ action.performed +=
+
+---
+
+UE는 레이어를 쌓습니다
+
+IMC(Input Mapping Context)를 AddMappingContext(IMC, Priority)로 우선순위와 함께 올립니다. 
+그리고 UInputAction에는 bConsumeInput이 기본 true로 있습니다. 
+위 레이어가 키를 소비하면 아래 레이어는 그 키를 못 받습니다
+
+---
+
+Unity에는 이 개념이 없습니다.
+
+Action Map은 우선순위가 없고, 소비(consume) 개념도 없습니다
+여러 맵을 동시에 enable하면 둘 다 입력을 받습니다
+겹치는 바인딩이 있으면 양쪽이 다 발화합니다
+
+---
+
+Unity에서 같은 걸 하려면 방식이 다릅니다
+
+맵을 명시적으로 Disable() / Enable() 하기
+또는 bindingMask로 활성 바인딩을 걸러내기 
+(단, 이걸 바꾸면 활성 액션이 전부 잠시 비활성화됐다 재활성화됩니다)
+
+---
+
+UE의 ETriggerEvent
+Started, Ongoing, Triggered, Completed, Canceled
+내부 상태는 None → Ongoing → Triggered 세 가지고, 이벤트는 그 사이의 전이
+
+Unity의 콜백
+started, performed, canceled
+
+---
+
+UE는 Completed와 Canceled를 나눕니다. 
+Triggered → None이 Completed(정상 종료), 
+Ongoing → None이 Canceled(중도 취소)
+
+Unity는 둘 다 canceled 하나로 옵니다
+Button 타입에서 
+"press threshold를 넘고 뗀 경우"와 
+"threshold를 못 넘고 뗀 경우"가 둘 다 canceled로 옵니다. 
+
+구분하려면 performed가 왔었는지를 직접 기억해야 합니다.
+
+---
+
+UE의 Ongoing에 대응하는 콜백이 Unity에 없습니다.
+
+UE는 홀드가 진행되는 동안 매 틱 Ongoing을 쏩니다(push)
+
+Unity는 Started 상태에 머물 뿐이고
+진행률은 GetTimeoutCompletionPercentage()로 물어봐야 합니다(pull)
+
+홀드 게이지 UI를 만들 때 UE 습관대로 "진행 이벤트를 받아 게이지를 갱신"하려 하면 그런 이벤트가 없습니다
+Unity에서는 started에서 게이지를 켜고, Update에서 완료율을 폴링하고, canceled에서 끕니다.
+
+---
+
+UE는 FKey라는 평평한 전역 키 목록을 씁니다
+
+EKeys::Gamepad_LeftThumbstick_X 같은 식
+
+편하지만, 장치 계층도 없고 역할 기반 지정도 없고 와일드카드도 없습니다
+
+---
+
+Unity의 control path는 계층·usage·와일드카드를 다 갖습니다.
+
+<Gamepad>/leftStick/x — layout 계층
+
+<Gamepad>는 그걸 상속한 모든 패드에 매칭
+<DualShockGamepad>/buttonSouth — 더 좁게 지정하고 싶을 때
+
+*/{Submit} — 장치 종류를 모른 채 "확인 버튼"만 지목
+
+<Touchscreen>/touch*/press — 손가락 전부
+
+---
+
+UE는 IA 하나가 파일 하나입니다. 
+액션이 30개면 에셋이 30개 생깁니다. 
+
+Unity는 .inputactions 파일 하나에 맵·액션·바인딩이 전부 들어갑니다.
+
+버전 관리 충돌 양상이 정반대 
+UE는 파일이 잘게 쪼개져 충돌이 적고, 
+Unity는 한 파일에 몰려 있어 두 사람이 다른 액션을 건드려도 같은 파일을 수정합니다
+팀 작업이면 액션 에셋 담당을 정해두는 게 낫습니다.
+
+---
+
+네이티브 백엔드가 장치를 발견 → InputDevice 생성
+layout을 보고 control 트리 구성, state 메모리 할당
+액션에 처음 접근하는 시점에 binding resolution — 문자열 경로가 실제 컨트롤 목록으로 바뀜
+
+---
+
+Start에서 액션 참조를 한 번 잡아두라는 권장이 여기서 나옵니다
+
+레거시 Input.GetAxis("Horizontal")이 느렸던 건 
+"찾기"와 "읽기"를 매번 함께 했기 때문
+
+새 시스템은 그 둘을 분리해서 찾기를 초기화 시점으로 밀어냈습니다
+
+---
+
+매 프레임 벌어지는 일
+
+네이티브 이벤트 버퍼
+  → state 메모리 갱신
+  → (읽을 때) Processor 적용
+  → 컨트롤 충돌 해소
+  → Interaction 상태 기계 전이
+  → started / performed / canceled 콜백 발화
+
+---
+
+Update Mode 설정이 이 축에 있습니다
+Dynamic / Fixed / Manual 중 어디서 이 파이프라인을 돌릴지 정하는 겁니다
+
+그리고 UI 갱신은 이 파이프라인이 끝난 뒤에 별도로 일어납니다
+그래서 액션 콜백 안에서 IsPointerOverGameObject()를 부르면 
+한 프레임 전 UI 상태를 보게 되고 경고가 납니다
+
+---
+
+비정기적으로 벌어지는 일
+
+바인딩 수정 / bindingMask 변경
+활성 액션이 전부 잠시 비활성화됐다 재활성화
+
+포커스 변화 — Background Behavior 설정이 여기 걸립니다. 
+기본값은 포커스를 잃으면 백그라운드 불가 장치를 soft reset하고 비활성화하는 것이고, 
+이때 관련 액션이 cancel됩니다
+
+---
+
+"performed가 프레임마다 쏟아진다"
+
+Value 타입의 기본 동작
+값이 변할 때마다 performed
+
+한 번만 받고 싶으면 Button 타입이거나, Press interaction
+
+---
+
+"started는 오는데 performed가 안 온다"
+
+Button 타입인데 press threshold를 못 넘었습니다
+started는 "actuate 시작"이지 "눌림"이 아닙니다
+
+---
+
+"손가락 여러 개인데 하나만 처리된다"
+
+컨트롤 충돌 해소가 여러 컨트롤을 하나의 값으로 합쳤습니다
+touch* 와일드카드로 묶었다면 액션 타입을 PassThrough로 바꿔야 각각 옵니다
+
+---
+
+Update에서 터치를 읽는데 짧은 탭을 놓친다
+
+Touchscreen을 직접 폴링하고 있습니다.
+프레임 사이 상태 변화가 유실됩니다
+
+EnhancedTouch를 쓰고 
+EnhancedTouchSupport.Enable()을 먼저 부르세요
+
+---
+
+리바인딩 UI를 열면 다른 입력이 순간 끊긴다
+
+바인딩을 수정하면 활성 액션이 전부 비활성화됐다 재활성화됩니다
+리바인딩 중에는 게임 입력을 어차피 막는 게 맞습니다.
+
+---
+
+activeControl
+
+하나의 액션에 여러 컨트롤이 물려 있을 때 값을 하나로 정해야 하는데, 
+그 결정 규칙이 actuation의 크기
+
+EvaluateMagnitude()가 가장 큰 컨트롤이 activeControl이 되고, 
+다른 컨트롤이 현재 activeControl의 actuation을 넘어서면 그 자리를 뺏습니다
+
+---
+
+같은 액션에 왼쪽·오른쪽 트리거를 모두 바인딩합니다
+
+왼쪽 트리거를 끝까지 당김 → Button 액션은 performed, activeControl = leftTrigger
+오른쪽 트리거를 절반만 당김 → Button 액션은 아무 반응 없음
+왼쪽 트리거를 놓음 → 모든 컨트롤이 릴리즈되었으므로 Button 액션은 canceled, activeControl = null
+
+---
+
+같은 상황에서 PassThrough 액션은 다르게
+
+2번에서 performed가 발생하고 activeControl이 rightTrigger로 바뀌며, 
+3번에서도 "또 하나의 값 변화"로 performed가 나고 activeControl이 leftTrigger로 돌아갑니다.
+
+---
+
+액션의 성격
+
+PassThrough
+충돌 해소(conflict resolution)를 우회하는 것
+
+바인딩된 모든 컨트롤에서 입력을 전부 걷어오고 싶다는 요구
+
+대가 — started와 canceled를 쓰지 않습니다. 
+값이 변할 때마다 performed만 옵니다. 
+canceled는 액션이 disable될 때 한 번 옵니다.
+
+"입력이 시작됐다/끝났다"를 알 수 없어집니다
+
+드래그처럼 시작과 끝이 중요한 인터랙션에는 Value
+
+---
+
+Press interaction
+
+버튼 같은 동작을 명시적으로 강제하는 interaction
+
+PressOnly
+ReleaseOnly
+PressAndRelease
+
+---
+
+입력은 application focus에 묶여 있습니다
+포그라운드가 아니면 장치가 입력을 받지 않고, 따라서 액션도 받지 않습니다
+
+포커스가 돌아올 때 벌어지는 일이 설계의 핵심
+
+모든 장치에 sync 요청을 보냅니다 — "지금 네 상태를 알려줘."
+백그라운드에 있는 동안 상태가 바뀌었을 수 있기 때문입니다
+
+sync를 지원하지 않는 장치는 대신 soft reset을 받습니다
+
+iOS와 Android는 백그라운드 실행 자체를 지원하지 않으므로 이게 유일한 동작입니다
+
+---
+
+Soft reset
+
+dontReset으로 표시되지 않은 컨트롤만 기본값으로
+이 표시 덕분에 마우스 위치가 (0,0)으로 튀지 않습니다
+
+
+Hard reset
+
+dontReset 여부와 무관하게 전부
+
+리셋은 액션을 깨끗하게 cancel시킵니다
+
+---
+
+에디터는 play mode 중에 Game 뷰 포커스와 무관하게 player loop를 계속 돌립니다
+그래서 에디터에서 "Run In Background는 항상 켜진 것으로 간주"됩니다
+결과적으로 "포커스 없음"의 의미가 빌드와 완전히 달라집니다
+
+Play Mode Input Behavior
+
+Pointers And Keyboards Respect Game View Focus
+All Devices Respect Game View Focus
+All Device Input Always Goes To Game View
+
+"에디터에선 되는데 빌드에서 다르다"를 줄이려면 세 번째로 두고 개발하는 게 낫습니다
+
+---
+
+Pointer
+2D 표면 위의 위치를 추적하는 장치의 공통 추상
+Mouse, Pen, Touchscreen 셋이 여기서 파생
+
+공통 컨트롤
+position, delta, press, pressure, radius
+
+---
+
+좌표계
+플레이어 코드에서는 Player 윈도우 좌표계입니다
+
+delta의 정의
+"이번 프레임/업데이트 동안 누적(합산)된 이동량"
+매 프레임 (0,0)으로 리셋
+
+delta의 해상도는 하드웨어와 플랫폼에 따라 다릅니다
+마우스 감도를 delta 기반으로 짜면 플랫폼별로 다르게 느껴질 수 있다
+
+---
+
+position은 dontReset으로 표시돼 있습니다
+Background Behavior와 이어지는 실
+soft reset에서 제외되기 때문에 포커스를 잃었다 돌아와도 마우스 커서 위치가 유지
+
+---
+
+레거시에는 이 추상이 없었습니다
+
+마우스와 터치가 각각 별도 API였고, 
+터치→마우스 시뮬레이션이라는 편법으로 봉합
+
+새 시스템은 그걸 타입 계층으로 해결
+크로스 플랫폼 코드가 Mouse가 아니라 Pointer에 바인딩해야 하는 이유가 이 계층
+
+---
+
+EnhancedTouch
+Touchscreen 위에 얹은 기록(recording) 계층
+
+Touchscreen의 state는 "지금 이 순간"만 담습니다
+프레임 사이에 손가락이 닿았다 떨어지면 그 사실이 사라집니다
+
+EnhancedTouch는 발생하는 대로 터치를 기록해서 이 문제를 풉니다.
+기록에 비용이 들기 때문에 명시적으로 EnhancedTouchSupport.Enable()을 불러야 켜집니다.
+
+---
+
+Finger — Touchscreen의 N번째 접촉 슬롯입니다. 물리적 손가락 자리
+Touch.activeFingers
+
+Touch — 하나의 접촉 생애
+Began으로 시작해 Ended 또는 Cancelled로 끝나고
+그 사이에 Moved와 Stationary가 임의 개수 들어갑니다
+같은 생애의 모든 기록은 동일한 touchId를 갖습니다
+
+Touch.activeTouches
+
+---
+
+제스처 인식에는 Touch 축
+하나의 접촉이 화면을 어떻게 가로질렀는지 추적
+
+---
+
+Touch와 Finger API는 GC 쓰레기를 만들지 않습니다
+데이터 본체는 unmanaged 메모리에 있고 
+이들은 그걸 인덱싱하는 wrapper struct이며, 
+배열은 전부 사전 할당돼 있습니다
+
+---
+
+Touchscreen.touches는 고정 크기 배열
+현재 활성 터치 수와 무관하게 크기가 같습니다
+
+활성인 것만 필요하면 Touch.activeTouches를 써야 
+
+---
+---
+---
+
+<Gamepad>/buttonSouth
+게임패드 계열 장치의 아래쪽 액션 버튼에 해당하는 모든 것
+
+---
+
+[에디터에서 저장한 것]
+  "<Gamepad>/buttonSouth"          ← 그냥 텍스트. 액션 에셋 파일 안에 문자열로 들어감
+
+[게임 실행. Xbox 패드 1개 + PS5 패드 1개 연결]
+
+[해석 후 action.controls]
+  [0] XInputControllerWindows.buttonSouth     ← Xbox 패드의 A 버튼
+  [1] DualSenseGamepadHID.buttonSouth         ← PS5 패드의 X(크로스) 버튼
+
+---
+
+문자열 하나가 실제 객체 두 개가 되었습니다
+그리고 서로 다른 이름의 물리 버튼입니다
+
+결과가 0개일 수도 있습니다
+
+---
+
+InputSystem.FindControls<>()가 호출되어 현재 InputSystem.devices를 훑음
+action.controls 배열이 채워짐. 이제 입력이 흐를 수 있음
+
+---
+
+[에디터]    Board 맵에 Point 액션, <Pointer>/position 바인딩 저장
+
+[씬 로드]   여전히 아무 일 없음
+
+[Start()]   var point = InputSystem.actions.FindAction("Board/Point");
+            → 액션 객체 참조만 얻음. 아직 해석 안 됨
+
+[Start()]   point.Enable();
+            → 여기서 binding resolution 발생
+              현재 연결된 Mouse, Touchscreen을 훑어 controls 목록 생성
+
+[Update()]  point.ReadValue<Vector2>();
+            → 이미 만들어진 목록에서 읽기만. 해석 비용 없음
+
+---
+
+안 쓸 액션에 비용을 내지 않기 위해
+액션이 50개인데 이번 씬에서 5개만 쓴다면, 나머지 45개를 해석하는 건 낭비
+
+그 시점의 현실을 반영하기 위해
+게임 시작 직후에는 장치가 아직 다 발견되지 않았을 수 있습니다. 
+늦게 해석할수록 정확한 현실을 봅니다
+
+---
+
+함정
+
+Awake에서 action.controls를 읽으면 그 시점에 해석이 강제로 일어납니다.
+장치가 아직 준비되지 않았을 수 있어서, 비어 있는 목록을 받고 
+"왜 아무것도 없지" 하게 됩니다
+
+---
+
+재해석이 일어나는 경우들
+
+장치가 추가되거나 제거될 때
+바인딩이 수정될 때 (리바인딩 포함)
+bindingMask가 바뀔 때 (control scheme 전환)
+
+---
+
+컴포지트 바인딩
+
+Move  (Action, Control Type = Vector2)
+└─ 2D Vector  (Composite)              ← control path 없음. 조립만 담당
+   ├─ Up    (Part)  →  <Keyboard>/w    ← 실제 컨트롤에 붙음
+   ├─ Down  (Part)  →  <Keyboard>/s    ← 실제 컨트롤에 붙음
+   ├─ Left  (Part)  →  <Keyboard>/a
+   └─ Right (Part)  →  <Keyboard>/d
+
+---
+
+<Keyboard>/w는 Button 컨트롤이라 float밖에 못 줍니다
+Move 액션은 Vector2를 원합니다
+컴포지트가 float 네 개를 받아 Vector2 하나로 합성하는 중간 계층 역할을 합니다
+
+---
+
+Control Scheme
+어떤 마스크를 쓸지 결정하는 규칙
+
+asset.AddControlScheme("KeyboardMouse")
+     .WithRequiredDevice<Keyboard>()
+     .WithRequiredDevice<Mouse>();
+
+asset.AddControlScheme("DualGamepad")
+     .WithRequiredDevice<Gamepad>()
+     .WithOptionalDevice<Gamepad>();  // 두 번째는 있어도 되고 없어도 됨
+
+---
+---
+---
+
+스트림
+
+가변 길이 레코드의 연속
+이벤트마다 크기가 다릅니다
+그래서 모든 이벤트 헤더에 sizeInBytes가 있습니다
+다음 이벤트를 찾으려면 "현재 위치 + sizeInBytes"만큼 점프
+
+---
+
+영수증 두루마리
+항목마다 길이가 다르고, 각 항목이 자기 길이를 스스로 적어둡니다
+그 숫자를 보고 다음 항목의 시작 위치를 계산합니다.
+
+---
+
+소비되기 전까지 쌓인다
+
+한 프레임 사이에 이벤트가 여러 개 쌓일 수 있습니다
+60fps면 프레임 간격이 약 16ms인데, 
+마우스는 그 사이에 8번 보고할 수 있습니다.
+
+---
+
+state 메모리에는 최종 결과만 남습니다
+손가락이 닿았다 떨어졌다면 state는 "안 닿음"입니다
+그런데 스트림에는 닿음과 떨어짐이 둘 다 들어 있습니다
+
+---
+
+Unity가 "지금 상태 어때?"라고 묻지 않습니다. 
+백엔드가 일방적으로 밀어넣습니다.
+
+---
+---
+---
+
+자동차의 controls
+핸들·페달·기어 레버
+
+비행기의 flight controls
+조종간과 러더 페달
+
+사람의 손발이 직접 닿는 부품
+
+---
+
+UI 위젯
+
+HTML의 form controls
+UI Toolkit Button·Toggle·Slider
+
+---
+
+Input System 
+Control
+
+a part of a device that sends values to the Input System when actuated
+"device의 일부"이고 "actuate되면"
+
+화면 위 위젯이 아니라 장치에 달린 부품
+
+---
+
+Unity가 control 주변에 배치한 단어들
+
+actuation / actuated / IsActuated()
+magnitude / EvaluateMagnitude()
+device
+
+---
+
+입력 장치를 "화면 위의 위젯"이 아니라 "기계 장치의 조작부" 로 모델링
+
+---
+
+같은 조작부라도 차종마다 위치가 다르다
+control path
+
+조작부의 배치 전체를 하나로 부를 이름이 필요하다
+control scheme
+
+---
+
+Control = 조작부 하나. 물리적 부품 하나
+Control path = 그 조작부 하나를 지목하는 주소.
+
+Control scheme
+조작 체계 전체
+"이 게임의 control scheme은 WASD + 마우스다"
+
+---
+
+Control Scheme
+"이름 하나 + 0개 이상의 장치 요구사항 + 연결된 바인딩 그룹"
+
+컨트롤 목록이 아닙니다
+
+---
+
+Input System의 control = 하드웨어 조작부
+UI Toolkit의 control = 화면 위젯
