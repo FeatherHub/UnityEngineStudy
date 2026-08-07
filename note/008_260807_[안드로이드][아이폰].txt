@@ -1,0 +1,2684 @@
+(A) 프로세스 진입점   OS 가 형식을 정한 얇은 껍데기
+
+(B) 네이티브 엔진     Unity C++ 엔진 + scripting runtime
+Unity 가 미리 빌드해 배포. 프로젝트마다 다르지 않음
+
+(C) 프로젝트 데이터   직렬화된 씬·에셋 + 내 C# 코드
+빌드마다 달라지는 층
+
+---
+
+WindowsPlayer.exe 667 KB
+PE import 테이블에 UnityPlayer.dll 의 UnityMain2 하나
+
+UnityPlayer.dll 36.9 MB
+export 는 UnityMain, UnityMain2 둘
+
+---
+
+PlaybackEngines 밑 WindowsPlayer 솔루션
+
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nShowCmd)
+{
+    LPCWSTR customDataFolder = nullptr;
+    return UnityMain2(hInstance, customDataFolder, lpCmdLine, nShowCmd);
+}
+
+---
+
+Editor
+
+Unity.exe 는 282 KB 이고 UnityPlayer.dll 을 static import 하지 않는다
+
+대신 LoadLibraryExW 와 "Unity.dll", "UnityMain" 문자열을 갖고 있고
+
+Unity.dll 은 86.5 MB 이며 UnityMain 을 export 한다
+
+껍데기 exe + 엔진 dll 이라는 패턴은 같되 엔진 빌드 자체가 다른 물건
+
+---
+
+Unity.exe ── LoadLibrary ──▶ Unity.dll   (Editor + 엔진, 86 MB)
+  │              └─ MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll
+  │
+  ├─ Unity.exe (AssetImportWorker × N)    ← Parallel Import
+  ├─ UnityShaderCompiler.exe × N
+  ├─ UnityPackageManager (upm) server
+  ├─ NetCoreRuntime/dotnet.exe            ← Roslyn, Bee build program
+  └─ UnityCrashHandler64.exe
+
+---
+
+Import worker 는 스레드가 아니라 별도 Editor 인스턴스
+Parallel imports operate in a separate worker instance of the Editor
+
+그래서 AssetPostprocessor 가 메인 Editor 가 아닌 그 워커 안에서 돈다고 경고
+
+---
+
+Unity.dll 하나에 엔진 코어와 Editor 가 함께 들어 있다
+
+---
+
+The Unity Editor embeds Mono, 
+so your C# code is managed by Mono and is subject to Mono's constraints 
+when running in the Editor's Play mode
+
+Player Settings 의 Scripting Backend 를 IL2CPP 로 바꿔도 Editor 자신은 Mono JIT 로 돈다
+
+---
+
+Play mode 진입 시에도 기본적으로 domain reload 가 일어난다
+
+Configurable Enter Play Mode 로 끌 수 있지만
+그러면 static 상태와 static event 구독이 세션 간에 살아남아 직접 리셋
+
+스크립트 변경으로 인한 domain reload 는 이 설정과 무관하게 계속 일어난다
+
+---
+
+에셋은 build 된 아카이브가 아니라 
+GUID 로 artifact 를 lazy 하게 찾아 붙인다
+로딩 순서와 시점이 player 와 다르다
+Editor 에서 안 나던 참조 누락이 빌드에서 나는 흔한 원인
+
+입력이 OS 메시지 루프 → Editor 창 → Game view 로 한 단계 더 거친다
+
+---
+
+Android 앱은 Zygote 프로세스를 fork 해서 시작한다
+프로세스가 뜬 시점에 ART VM 과 프레임워크 클래스가 이미 올라와 있고
+그 위에 Java 진입점이 얹힌다
+
+Zygote ──fork──▶ 앱 프로세스 (ART VM 이미 초기화됨)
+
+                  └─ ActivityThread → Activity 진입점
+                        UnityPlayerActivity        (Activity)
+                        UnityPlayerGameActivity    (GameActivity, 신규 프로젝트 기본값)
+                          │
+                          └─ System.loadLibrary
+                                libunity.so    ← 엔진
+                                libil2cpp.so   ← 내 C# 이 변환된 네이티브 코드
+                                libmain.so
+
+---
+
+C++ glue 라이브러리(libgame.so)를 bridge 로 쓰고
+그 bridge 소스를 수정할 수 있는 게 Activity 대비 차이
+
+Java 스레드에서 돌아야 하는 plug-in 을 쓰면 Activity 쪽을 선택
+
+Activity element 는 singleTask launchMode 만 지원
+
+---
+
+Unity 가 만드는 Gradle 프로젝트는 두 모듈
+
+launcher/          ← 얇은 앱. 이름·아이콘·manifest
+
+unityLibrary/      ← Unity runtime + Player data. 엔진 + 프로젝트
+  ├── libs/unity-classes.jar          Unity 가 쓰는 Java 코드
+  └── src/main/
+      ├── assets/bin/Data/            (C) 직렬화된 에셋·씬
+      ├── jniLibs/<abi>/              (B) libunity.so, libil2cpp.so, libmain.so
+      ├── java/                       UnityPlayerActivity 소스
+      └── AndroidManifest.xml
+
+---
+
+Unity as a Library
+
+launcher 는 "a simple Android application that launches Unity"
+
+Windows 의 exe/dll 분리가 Android 에선 launcher/unityLibrary 모듈 분리로 나타난다
+
+---
+
+Mono 는 Android Armv7 에서만 지원된다
+Google Play 는 native code 를 포함한 신규 앱·업데이트에 arm64 버전을 요구
+
+Editor 는 Mono JIT, 기기는 IL2CPP AOT
+개발 환경과 실행 환경의 scripting runtime 이 다르다
+리플렉션·제네릭·code stripping 이 Editor 에서만 통과하는 사고가 여기서 난다.
+
+---
+
+Player data 가 파일시스템이 아니라 APK 안 assets/bin/Data 에 있다
+압축 여부와 native library 추출 여부가 manifest 설정 항목으로 존재
+
+프로세스가 OS 판단으로 언제든 죽는다
+onPause/onResume 과 surface 재생성을 엔진이 흡수하지만
+GL context 손실 경로가 존재한다
+
+---
+
+iPhone
+
+fork 없이 launchd 가 앱 프로세스를 직접 띄운다
+Objective-C 진입점이 곧 프로세스의 시작
+
+launchd ──▶ 앱 프로세스
+              main.mm  → UIApplicationMain
+                           UnityAppController  (UIApplicationDelegate 서브클래스)
+                             └─ UnityFramework.framework 안의 엔진
+
+---
+
+Xcode 프로젝트가 target 두 개로
+
+Unity-iPhone
+A thin launcher part that runs the UnityFramework
+MainApp, 아이콘, launch screen, Info.plist
+
+UnityFramework
+Unity runtime, Classes, Libraries
+
+GameAssembly
+IL2CPP 가 내 C# 을 C++ 로 바꿔
+libGameAssembly.a 와 il2cpp.a 두 static library 로 컴파일
+
+---
+
+.app 번들 안의 배치
+
+MyGame.app/
+├── MyGame                        ← Unity-iPhone. 얇은 launcher
+├── Frameworks/
+│   └── UnityFramework.framework  ← (B) 엔진 + IL2CPP 산출물
+├── Data/                         ← (C) 직렬화 에셋 + .NET 어셈블리
+│   └── Metadata/global-metadata.dat
+└── Info.plist
+
+---
+
+빌드 산출물이 실행 파일이 아니라 Xcode 프로젝트
+Unity 가 프로젝트를 생성하고 실제 컴파일·링크·서명은 Xcode 가
+
+Unity-iPhone 이 thin launcher 라는 점은 Android launcher 모듈과 발상이 같지만, 
+iOS 쪽은 framework 를 embed 하고 
+Android 쪽은 Gradle 모듈을 의존한다
+
+UnityFramework.getInstance() 로 런타임 자체를 제어하는 API 가 열려 있다
+
+---
+
+runUIApplicationMainWithArgc 냐 runEmbeddedWithArgc 냐로 
+"Unity 가 화면 전체" 인지 "다른 View 와 공존" 인지가 갈린다. 
+
+부분 화면 렌더링은 미지원
+
+---
+
+Editor 는 Unity.dll 하나에 엔진+Editor 가 합쳐진 dynamic library
+
+Android 는 libunity.so + libil2cpp.so 로 엔진과 내 코드가 별개의 .so 로 분리
+
+iOS 는 UnityFramework.framework 안에 엔진과 libGameAssembly.a 가 함께 링크되어 한 덩어리
+
+---
+
+누가 프로세스의 주인인가
+
+Editor 는 Unity 가 주인
+
+Android 는 Java/ART 층이 위에 있고 Unity 는 Activity 한 개
+
+iOS 는 Unity 가 UIApplicationDelegate 를 구현해 사실상 주인이되 UIKit 생명주기에 종속
+
+---
+
+내 C# 코드의 형태
+
+Editor 는 Library/ScriptAssemblies 의 IL dll 을 Mono 가 JIT
+
+Android 는 libil2cpp.so 안의 네이티브 코드 + global-metadata.dat
+
+iOS 는 framework 에 링크된 네이티브 코드 + 같은 metadata
+
+---
+
+에셋의 형태
+
+Editor 는 Library/Artifacts 밑 GUID 이름의 개별 파일을 lazy 로드
+
+Player 는 boot.config 를 먼저 읽고 globalgamemanagers → level0 → sharedassets0.assets 순서로 잡는다
+
+압축 빌드면 data.unity3d 단일 아카이브
+Android 는 이게 APK 내부 assets/bin/Data
+iOS 는 .app 번들 안 Data/
+
+---
+
+IL2CPP
+Unity의 AOT scripting backend
+
+IL2CPP backend
+│
+├─ il2cpp 도구
+│    IL → C++ 생성
+│
+├─ generated C++
+│    프로젝트 C#에서
+│
+├─ IL2CPP runtime
+│    managed object/type/exception/GC 연동
+│
+└─ 최종 native binary
+     Android: libil2cpp.so // IL2CPP 백엔드가 만든 런타임 모듈
+
+---
+
+C#
+↓
+.NET assemblies / IL
+↓
+IL2CPP
+↓
+generated C++ + IL2CPP runtime
+↓
+native compiler + linker
+↓
+native binary
+
+---
+---
+---
+
+libmain.so
+arm64-v8a 것이 6,696 바이트
+
+export 하는 심볼이 JNI_OnLoad 하나
+NEEDED 목록에는 liblog, libm, libdl, libc
+
+libunity.so
+libil2cpp.so
+com/unity3d/player/NativeLoader
+
+---
+
+libmain 은 엔진이 아니라 loader stub
+
+ART 가 JNI_OnLoad 를 부르면
+com.unity3d.player.NativeLoader 에 
+load(String):boolean 네이티브 메서드를 붙여주고
+
+실제 엔진 .so 는 Java 쪽 요청에 따라 런타임에 dlopen 한다
+
+---
+
+AndroidPlayer/Variations/
+├── mono/Release/Libs/     armeabi-v7a          ← 이것뿐
+└── il2cpp/Release/Libs/   arm64-v8a  armeabi-v7a  armv9  x86_64
+
+---
+
+C:\Program Files\Unity\
+└── Hub\Editor\6000.4.8f1\
+    ├── modules.json          ← 어떤 모듈이 설치됐는지
+    ├── metadata.hub.json
+    └── Editor\               ← 여기부터가 실제 엔진
+
+---
+
+Editor
+├── Unity.exe              0.3 MB   ← 껍데기. LoadLibraryExW("Unity.dll") → UnityMain
+├── Unity.com              0.3 MB   ← 콘솔 변형
+├── Unity.dll             82.5 MB   ← 엔진 + Editor 본체
+├── UnityCrashHandler64.exe         ← 별도 프로세스로 상주하며 크래시 수집
+├── UnityTroubleshooter.exe
+├── D3D12\                          ← DirectX Agility SDK. 엔진과 별도 배포되는 D3D12 런타임
+├── BugReporter\
+├── mono-2.0-bdwgc.pdb
+├── (GPU 벤더 플러그인) NVUnityPlugin.dll, AMDUnityPlugin.dll, nvngx_dlss.dll
+├── (이미징) FreeImage.dll, libfbxsdk.dll, SketchUpAPI.dll
+├── (라이트매핑) OpenRL.dll, RadeonRays.dll, embree.dll, OpenImageDenoise.dll
+└── Data\                           
+
+---
+
+Agility SDK 방식
+OS 의 D3D12 를 쓰는 게 아니라 앱 옆에 놓인 D3D12Core.dll 을 쓴다
+
+---
+
+Data\
+├── Managed\                 Editor 자신의 C# 코드
+├── MonoBleedingEdge\        Editor 가 실행하는 scripting runtime
+├── NetCoreRuntime\          빌드 도구용 .NET (dotnet.exe)
+├── netcorerun\              BCL 어셈블리
+├── DotNetSdkRoslyn\         C# 컴파일러
+├── Resources\               내장 에셋
+├── Tools\                   위성 프로세스와 빌드 파이프라인
+├── il2cpp\                  IL2CPP 변환기 + 런타임 소스
+├── PlaybackEngines\         플랫폼별 재료
+├── PluginAPI\               네이티브 플러그인용 C 헤더
+├── UnityReferenceAssemblies\
+├── NetStandard\
+├── UnityETWProvider\        Windows 이벤트 트레이싱
+└── Documentation\
+
+---
+
+Managed — Editor 의 C# 코드
+
+Managed\
+├── UnityEditor.dll          Editor API 진입점
+├── UnityEngine.dll          facade. 실제 구현은 아래 모듈들
+├── UnityEngine\             UnityEngine.*Module.dll + UnityEditor.*Module.dll  (155개)
+├── Unity.Cecil*.dll         IL 조작. IL post-processing 과 stripping 의 기반
+├── Bee.*.dll                빌드 시스템
+└── Unity.CompilationPipeline.Common.dll
+
+---
+
+Unity Bee
+Unity 내부의 graph-based build system / build backend
+각 빌드 작업을 노드로 만들고, 입력·출력·의존성을 DAG로 구성한 뒤 변경된 노드만 다시 실행
+
+bee_backend는 Andreas Fredriksson의 Tundra build system을 기반으로
+
+---
+
+Mono.Cecil
+
+파일로 존재하는 assembly를 읽기 + 수정
+code stripping, Burst, ILPostProcessor 가 전부 Cecil 로 IL 을 뜯어고친다
+
+[Preserve] 나 link.xml 이 작용하는 지점
+
+---
+
+MonoBleedingEdge — Editor 의 심장
+
+MonoBleedingEdge\
+├── EmbedRuntime\
+│   ├── mono-2.0-bdwgc.dll   ← Boehm GC 빌드. Editor 가 로드하는 것
+│   ├── mono-2.0-sgen.dll    ← SGen GC 빌드
+│   └── MonoPosixHelper.dll
+├── lib\mono\                Base Class Library. 2.0-api ~ 4.6.1-api, unityjit, unityaot
+├── etc\mono\                machine.config, web.config
+└── bin\                     mono 도구 모음 (al, certmgr, …)
+
+---
+
+"Editor 는 항상 Mono"
+
+il2cpp\ 밑에는 실행 가능한 IL2CPP 런타임 바이너리가 없다. 
+C++ 소스뿐
+
+---
+
+NetCoreRuntime / netcorerun / DotNetSdkRoslyn
+
+Mono 와 별개로 .NET 이 하나 더 들어 있다
+이건 게임 코드용이 아니라 빌드 도구용
+
+Roslyn 컴파일러, Bee 빌드 프로그램, IL2CPP 변환기가 이 .NET 위에서 돈다
+
+게임의 C# 은 Mono(Editor) 또는 IL2CPP(player)로 가고, 
+그 C# 을 컴파일하는 도구는 .NET Core 로 간다
+
+---
+
+Assembly-CSharp.dll
+
+Unity가  C# 스크립트들을 모아 컴파일해서 만든 .NET assembly
+
+Assets/
+├─ Player.cs
+├─ Enemy.cs
+├─ GameManager.cs
+└─ Weapon.cs
+        │
+        │ Unity compilation pipeline
+        ▼
+Assembly-CSharp.dll
+├─ Player
+├─ Enemy
+├─ GameManager
+└─ Weapon
+
+Assembly-CSharp-Editor.dll
+
+---
+
+asmdef를 따로 지정하지 않은 C# 코드가 들어가는 Unity의 기본 assembly 이름
+
+---
+
+Resources — 내장 에셋
+
+unity editor resources     209.4 MB   ← Editor UI 의 모든 아이콘·스킨·기본 에셋
+unity_builtin_extra        151.6 MB   ← 프로젝트에서 참조되는 내장 리소스
+unity default resources      7.2 MB   ← Default-Material, Cube 메시, 내장 셰이더 등
+icudt73l.dat                 4.4 MB   
+
+---
+
+ICU
+International Components for Unicode
+문자열 비교, locale, 날짜/숫자 형식, Unicode normalization
+
+l = Little Endian + ASCII 계열
+Windows x86/x64는 little-endian이므로 Unity의 Windows 배포물에서 l 버전을 보는 것
+
+---
+
+ScriptTemplates\
+
+Create > C# Script 로 만들어지는 파일의 원본
+NewMonoBehaviourScript.cs.txt 를 고치면 스크립트 기본형이 바뀐다
+
+Layouts\ — Default.wlt 등 창 배치
+Window Layout
+
+PackageManager\BuiltInPackages\ — 엔진에 동봉된 패키지들
+
+---
+
+Tools — 위성 프로세스가 사는 곳
+
+Tools\
+├── UnityShaderCompiler.exe   셰이더 컴파일. 코어 수만큼 뜬다
+├── LightBaker.exe            라이트맵 베이킹
+├── JobProcess.exe
+├── UnityCrashHandler64.exe
+├── binary2text.exe           직렬화된 바이너리 에셋을 텍스트로 덤프
+├── WebExtract.exe            AssetBundle / data.unity3d 압축 해제
+├── UnityYAMLMerge.exe        .unity / .prefab 3-way 병합. VCS 설정에 넣는 그것
+├── usymtool.exe              심볼 처리
+├── BuildPipeline\            Bee.* 전부. 실제 빌드를 돌리는 주체
+├── RoslynScripts\kill_csc_server.bat
+└── (텍스처 압축) astcenc-*.dll, ispc_texcomp.dll, etccompress.dll, s3tcompress.dll
+
+---
+
+PlaybackEngines — 플랫폼별
+
+<플랫폼>Support\
+├── UnityEditor.<Platform>.Extensions.dll   Editor 쪽 확장 (Build Settings UI, 빌드 로직)
+├── <Platform>PlayerBuildProgram.exe        Bee 빌드 프로그램
+├── Variations\                             실제 엔진 바이너리
+├── Bee\ 또는 Tools\                        툴체인
+└── modules.asset                           모듈 정의
+
+---
+
+Unity Editor
+
+──────────────────────────────────────────────
+  C# 층                                        
+   UnityEditor.dll        20 MB                
+     Inspector, SceneView, Project 창,         
+     메뉴, PropertyDrawer, 빌드 파이프라인 로직 
+   UnityEngine.*Module.dll                     
+     GameObject, Transform, Input ... 의 API 표면 
+───────────────┬──────────────────────────────
+               │  internal call 
+───────────────▼──────────────────────────────
+  C++ 층 — Unity.dll  82.5 MB                  
+   렌더링, 물리, 직렬화, AssetDatabase,          
+   씬 그래프, 메모리 관리, 플랫폼 추상화          
+   + Mono 를 호스팅하는 코드                    
+──────────────────────────────────────────────
+
+---
+
+mono_jit_init                  런타임 초기화
+mono_set_dirs                  BCL 위치 지정
+
+mono_domain_create_appdomain   AppDomain 생성
+mono_domain_assembly_open      어셈블리 로드
+mono_domain_unload             AppDomain 폐기
+
+mono_add_internal_call         ★ C# extern 메서드 - C++ 함수 연결
+mono_runtime_invoke            ★ C++ 이 C# 메서드를 호출
+
+---
+
+Unity.exe
+  └─ LoadLibraryExW("Unity.dll") → UnityMain
+       │
+       └─ Unity.dll (C++ 코어)
+            ├─ MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll 을 로드
+            ├─ GetProcAddress 로 331개 mono_* 함수 주소 확보
+            ├─ mono_set_dirs → BCL 위치 알려줌
+            ├─ mono_jit_init → Mono 초기화, "Unity Root Domain" 생성
+            ├─ mono_add_internal_call × 수천 번 → 다리 놓기
+            └─ mono_domain_assembly_open → UnityEditor.dll 등 로드
+
+---
+
+두 세계를 잇는 다리 — internal call
+9,105개
+
+UnityEngine.Transform::GetPositionAndRotation_Injected
+UnityEngine.Transform::GetParent_Injected
+UnityEngine.Transform::GetChildCount_Injected
+UnityEngine.Object::Destroy_Injected
+UnityEngine.Object::GetName_Injected
+UnityEngine.Object::GetOffsetOfInstanceIDInCPlusPlusObject
+UnityEngine.Input::GetMouseButtonDown
+UnityEngine.Input::GetKeyInt
+UnityEngine.AI.NavMesh::GetAreaCost
+
+mono_add_internal_call("UnityEngine.Transform::GetParent_Injected", &실제_C++_함수) 형태로 
+수천 번 등록한다
+
+---
+
+C# 코드            transform.parent
+  ↓ (JIT 된 기계어. 호출 지점이 C++ 함수 주소로 직접 패치돼 있음)
+C++ 함수           Transform::GetParent()
+
+---
+
+UnityEngine.CoreModule.dll 이 2.2 MB 밖에 안 되는 이유
+API 표면과 IL 접착제뿐이고 구현은 전부 건너편 C++ 에 있
+
+---
+
+스크립트 저장 → Assembly-CSharp.dll 재생성
+             → Child Domain 통째로 unload
+             → 새 Child Domain 생성 + 새 dll 로드
+             → Editor 재시작 없이 새 코드가 즉시 반영
+
+AOT 세계에는 이 사이클이 존재할 수 없다         
+
+---
+
+내 C# 코드
+   │
+   ├─ [1] managed wrapper 메서드        ← 평범한 C#. JIT 됨
+   │       null 검사, 포인터 획득, span 포장, 문자열 해제
+   │
+   └─ [2] _Injected icall               ← C ABI 함수 호출. 거의 공짜
+           IntPtr 와 포인터만 주고받음
+              │
+              ▼
+           C++ 함수
+
+---
+
+JIT 된 코드는 처음 호출되기 전까지 존재하지 않는다. 
+C# 쪽 extern 선언에는 몸통이 없고, 어떤 C++ 함수인지 이름만 있다.
+
+그래서 시작할 때 mono_add_internal_call("UnityEngine.Transform::GetParent_Injected", &실제_C++_함수) 로 
+이름→주소 표를 만들어둔다. 
+Unity.dll 안의 9,119개 문자열이 이 표
+
+JIT 이 그 메서드를 컴파일할 때 표를 뒤져서 직접 호출로 패치한다
+그 뒤로는 그냥 함수 호출
+
+---
+
+P/Invoke(DllImport)와 다른 점
+
+P/Invoke 는 마샬링 stub 과 관리↔네이티브 전환 처리를 끼운다
+internal call 은 그 기계를 건너뛰라고 있는 물건
+
+---
+
+C# → C++ (internal call)
+
+C# 호출부  →  [JIT 이 이미 주소를 박아둔 직접 호출]  →  C++ 함수
+
+호출 대상이 컴파일 시점에 정해져 있다. 
+이름이 metadata 에 박혀 있고 JIT 이 한 번 풀고 나면 끝.
+
+---
+
+C++ → C# (runtime invoke)
+
+static Il2CppObject* InvokeConvertArgs(const MethodInfo* method, void* obj,
+                                       Il2CppObject** params, int paramCount,
+                                       Il2CppException** exc)
+
+---
+
+const MethodInfo* method — 메서드를 먼저 찾아야 한다
+mono_class_from_name → mono_class_get_method_from_name
+해시 테이블 탐색
+
+void* obj
+대상 객체가 살아 있고 접근 가능해야 한다
+GC 핸들, 그리고 Editor 라면 HasTargetInCurrentDomain() 확인까지
+
+void** params
+인자를 박싱해서 포인터 배열로 만들어야 한다
+mono_value_box / mono_object_unbox
+
+Il2CppException** exc
+관리 예외가 되돌아 나올 수 있으니 받아서 처리해야 한다
+
+---
+
+오브젝트 만 개에 Update() 를 달면 프레임마다 만 번의 C++→C# 전이가 생긴다
+"Update 를 매니저 하나로 모아라"
+
+C# → C++    프레임당 수만 번 불러도 괜찮음. transform.position 같은 것
+C++ → C#    프레임당 호출 수를 세어야 함
+
+---
+
+참조 타입을 인자로 넘길 때, C# 문법상으로는 "객체를 넘긴다" 지만
+기계어 수준에서 실제로 레지스터에 실리는 건 GC 힙 위 객체의 주소
+
+문제는 그 주소가 어느 객체의 것
+
+internal static extern bool IsPersistent([NotNull] Object obj);   // ← 관리 객체를 그대로
+
+이때 C++ 함수가 받는 건 MonoObject* — C# 쪽 껍데기의 주소
+
+public partial class Object
+{
+    IntPtr m_CachedPtr;     // ← C++ 객체를 가리킴
+    int    m_InstanceID;
+}
+
+네이티브가 그 주소에서 m_CachedPtr 필드를 한 번 더 읽어야 목적지에 닿았다
+
+---
+
+Unity 6 은 이 한 단계를 관리 쪽으로 올렸다
+
+[MethodImpl(MethodImplOptions.InternalCall)]
+private static extern bool IsPersistent_Injected(IntPtr obj);     // ← 이미 C++ 객체 주소
+
+예전 방식에서 네이티브가 받던 주소는 C# 껍데기의 주소여서, 거기서 필드를 한 번 더 읽어야 C++ 객체에 닿았다
+
+---
+
+UnityEngine.Object::BindNativeObject(System.IntPtr cachedPtr, EntityId v)
+{
+    m_CachedPtr = cachedPtr;
+    m_EntityId  = v;
+    m_UnityRuntimeErrorString = null;
+}
+
+이 attribute 는 "이 멤버는 C++ 이 부른다, 스트리핑하지 말라" 는 표시
+
+---
+
+C#   new GameObject("Player")
+  │
+  ├─ 생성자가 icall 호출
+  │
+  ▼
+C++  진짜 GameObject 를 C++ 힙에 생성
+  │
+  ├─ 관리 wrapper 객체를 GC 힙에 생성 (mono_object_new)
+  │
+  └─ 방금 만든 wrapper 를 향해 BindNativeObject(cachedPtr, entityId) 호출
+  │
+  ▼
+C#   손에 들어온 GameObject 참조는 이미 주소를 품고 있음
+
+---
+
+m_CachedPtr — 캐시된 생 주소. 있으면 즉시 반환. AggressiveInlining 이 붙어 있어 인라인된다. 거의 공짜.
+m_EntityId — 주소가 무효화됐을 때의 대비책. ID 로 테이블을 다시 조회한다.
+
+---
+
+#define IL2CPP_ARRAY_BOUNDS_CHECK(index, length) \
+    do { \
+        if (((uint32_t)(index)) >= ((uint32_t)length)) \
+            il2cpp_codegen_raise_index_out_of_range_exception(); \
+    } while (0)
+
+변환된 코드에 이런 검사가 촘촘히 박힌다
+
+---
+
+Mono (Editor / 데스크톱 player)
+  Assembly-CSharp.dll (IL)
+     └─ 실행 중 JIT ──▶ 기계어
+  런타임: mono-2.0-bdwgc.dll  (프로세스에 embed 된 별도 dll)
+
+---
+
+IL2CPP (Android arm64 / iOS)
+  Assembly-CSharp.dll (IL)
+     └─ 빌드 시 C++ 변환 ──▶ 컴파일 ──▶ libil2cpp.so 안의 기계어
+  런타임: libil2cpp.so 에 함께 링크됨 (같은 .so 안)
+
+---
+
+관리 런타임은 처음부터 C/C++ 이었다
+
+libil2cpp\
+├── vm\        Object.cpp  Class.cpp  Runtime.cpp  Domain.cpp  Exception.cpp …
+├── gc\        BoehmGC.cpp  GCHandle.cpp  WriteBarrier.cpp  GarbageCollector.cpp
+├── metadata\  os\  utils\  icalls\
+└── codegen\   il2cpp-codegen.h  il2cpp-codegen.cpp
+
+mono-2.0-bdwgc.dll 은 C 로 작성된 네이티브 dll
+
+---
+
+┌─ Base Class Library (BCL) ──────────────────────────
+│  System.Collections.Generic.List<T>                 
+│  System.String 의 메서드들, LINQ, Task ...
+│  → C# 으로 작성됨. IL 어셈블리로 존재                   
+│  → Mono 면 JIT, IL2CPP 면 AOT 변환 대상               
+└──────────────────────────────────────────────────────
+
+┌─ Runtime ────────────────────────────────────────────
+│  GC, 타입 로더, metadata 파서, 예외 기계,              
+│  JIT 컴파일러(Mono) 또는 codegen 지원(IL2CPP)          
+│  → C/C++ 로 작성됨. 처음부터 네이티브                   
+│  → AOT 변환 대상이 아님. clang/MSVC 가 직접 컴파일      
+└──────────────────────────────────────────────────────
+
+어떤 관리 런타임이든 바닥은 반드시 네이티브
+
+---
+
+GC 가 관리 객체를 어떻게 아는가
+new 키워드의 내부에 GC 와의 결선이 심어져 있는 것
+
+컴파일러가 만든다
+
+C# 소스        new Foo()
+                 │  Roslyn
+                 ▼
+IL             newobj instance void Foo::.ctor()     ← 명령어 하나. malloc 아님
+                 │
+       ┌─────────┴─────────┐
+   Mono JIT            IL2CPP 변환기
+       │                    │
+       ▼                    ▼
+  런타임 할당 함수      il2cpp_codegen_object_new(Foo_TypeInfo)
+   호출로 번역           호출로 변환
+
+---
+
+RuntimeObject* il2cpp_codegen_object_new(RuntimeClass *klass);
+
+Il2CppObject* Object::Allocate(size_t size, Il2CppClass *typeInfo)
+{
+    Il2CppObject *o;
+    ALLOC_OBJECT(o, typeInfo, size);      // Boehm GC 힙에서 할당
+    return o;
+}
+
+---
+
+void il2cpp::gc::GarbageCollector::StopWorld()
+{
+    vm::MetadataCache::AcquireMetadataLocks();
+    GC_stop_world_external();
+    vm::MetadataCache::ReleaseMetadataLocks();
+}
+
+void il2cpp::gc::GarbageCollector::StartWorld()
+{
+    GC_start_world_external();
+}
+
+어떤 스레드가 할당 
+→ 힙이 임계치를 넘음
+→ 바로 그 스레드에서 수집 시작
+→ StopWorld(): 나머지 관리 스레드를 전부 멈춤
+→ root 에서 마킹, 안 닿은 것 회수
+→ StartWorld(): 재개
+
+GC 스파이크가 메인 스레드 프레임에 그대로 나타난다
+
+---
+
+Unity 의 Incremental GC 는 이걸 쪼개는 설정
+
+#if IL2CPP_INCREMENTAL_TIME_SLICE
+    GC_set_time_limit(IL2CPP_INCREMENTAL_TIME_SLICE);
+#endif
+
+---
+
+static void FinalizerThread(void* arg)
+
+세마포어를 기다리다가, 수집 후 알림이 오면 깨어나 ~Foo() 를 실행하는 전용 스레드
+Profiler 에서 "GC Finalizer" 라는 이름으로 보인다
+
+---
+
+Gradle build 전체
+│
+├─ build.gradle                 ← root project
+│
+├─ settings.gradle
+│
+├─ launcher/
+│   └─ build.gradle             ← launcher module
+│
+└─ unityLibrary/
+    └─ build.gradle             ← unityLibrary module
+
+---
+
+root/build.gradle
+    ↓
+"이 전체 build에서 어떤 build plugin 버전을 쓸까?"
+
+launcher/build.gradle
+    ↓
+"최종 Android application을 어떻게 만들까?"
+
+unityLibrary/build.gradle
+    ↓
+"Unity runtime + 게임 데이터를 담은 Android library를 어떻게 만들까?"
+
+---
+
+com.unity.shadergraph                 .cs 773개   shader/hlsl/compute 77개
+com.unity.render-pipelines.core       .cs 724개   shader/hlsl/compute 251개
+com.unity.render-pipelines.universal  .cs 540개   shader/hlsl/compute 267개
+com.unity.ugui                        .cs 357개
+com.unity.collections                 .cs 174개
+
+---
+
+com.unity.render-pipelines.universal\
+├── Runtime\          C# 런타임 구현
+├── Editor\           C# 에디터 구현
+├── ShaderLibrary\    .hlsl
+├── Shaders\          Lit.shader, SimpleLit.shader, ComplexLit.shader …
+
+---
+
+reverse domain name notation
+Unity Package Manager(UPM)가 선택한 패키지 생태계 규약
+Unity Package Manager가 사용하는 package identifier
+
+com . unity . shadergraph
+│      │         │
+│      │         └─ 제품/패키지 이름
+│      └────────── 조직 이름
+└──────────────── 최상위 도메인
+
+package.json 쪽은 npm의 영향
+UPM의 registry 자체가 npm protocol 기반 registry를 지원
+
+---
+
+Java package
+com.google.gson
+
+Android application/package ID
+com.spotify.music
+
+Apple bundle identifier
+com.apple.TextEdit
+
+Unity package ID
+com.unity.shadergraph
+
+---
+
+NuGet의 관례
+
+.NET namespace 스타일
+
+Company.Product.Feature
+
+패키지 명세 방식
+
+XML manifest
+
+<package>
+  <metadata>
+    <id>Contoso.Utility</id>
+    <version>1.2.0</version>
+    <dependencies>
+      ...
+    </dependencies>
+  </metadata>
+</package>
+
+---
+
+현재 SDK-style .NET에서는 보통 .csproj에 직접 씁니다
+
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Contoso.Utility</PackageId>
+    <Version>1.2.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference
+        Include="Newtonsoft.Json"
+        Version="13.0.3" />
+  </ItemGroup>
+
+</Project>
+
+---
+
+dotnet pack
+Contoso.Utility.1.2.0.nupkg
+
+.nupkg는 ZIP 기반 패키지
+
+Unity UPM는 .tgz  기반 패키지
+
+---
+
+[OS]      플랫폼이 정한 진입 규약과 생명주기
+[UNITY]   Unity C++ 엔진 코어
+[CLR]     C# 런타임 — Mono 또는 IL2CPP
+[GAME]    내 코드 + 패키지 C# + 직렬화된 에셋
+
+---
+
+Windows/
+├── Universal2D.exe            667,648      [OS]    껍데기
+├── UnityPlayer.dll         36,922,288      [UNITY] 엔진
+├── MonoBleedingEdge/
+│   └── EmbedRuntime/
+│       └── mono-2.0-bdwgc.dll              [CLR]   ★ 별도 파일로 존재
+├── D3D12/
+└── Universal2D_Data/
+    ├── boot.config                        [UNITY] 엔진 기동 설정
+    ├── app.info                           "DefaultCompany / Universal2D"
+    ├── Managed/                           [GAME]+[CLR]
+    │   ├── mscorlib.dll        4,632,064   ← BCL. IL 그대로
+    │   ├── UnityEngine.CoreModule.dll 1,998,760
+    │   ├── Unity.InputSystem.dll 1,137,152
+    │   └── Assembly-CSharp.dll
+    ├── Resources/
+    │   ├── unity default resources  5,922,288
+    │   └── unity_builtin_extra        401,688
+    ├── Plugins/x86_64/lib_burst_generated.dll   ← Burst 산출물
+    ├── globalgamemanagers  globalgamemanagers.assets(+.resS)
+    ├── level0   sharedassets0.assets
+    ├── resources.assets(+.resS)
+    ├── ScriptingAssemblies.json
+    └── RuntimeInitializeOnLoads.json
+
+---
+
+Android/
+├── settings.gradle        include ':launcher'  include ':unityLibrary'
+├── launcher/                                   [OS]
+│   ├── build.gradle       implementation project(':unityLibrary')
+│   └── src/main/AndroidManifest.xml + res/     아이콘·앱 이름
+└── unityLibrary/
+    ├── libs/                                   unity-classes.jar 등
+    ├── build.gradle                            il2cpp.exe 를 부르는 스크립트
+    └── src/main/
+        ├── AndroidManifest.xml                 [OS] 
+        ├── java/com/unity3d/player/UnityPlayerGameActivity.java   [OS]
+        ├── cpp/                                [OS]↔[UNITY] 다리
+        │   ├── GameActivity/  UGAEntry.cpp UGAInput.cpp UGASoftKeyboard.cpp …
+        │   └── FramePacing/   UnitySwappyWrapper.cpp
+        ├── jniLibs/arm64-v8a/
+        │   ├── libmain.so           6,696      [UNITY] loader stub
+        │   ├── libunity.so     21,531,552      [UNITY] 엔진
+        │   ├── lib_burst_generated.so 1,501,616
+        │   └── libil2cpp.so      [CLR]+[GAME]
+        ├── jniStaticLibs/arm64-v8a/baselib.a
+        ├── Il2CppOutputProject/
+        │   ├── IL2CPP/         변환기 + libil2cpp 소스   [CLR]
+        │   └── Source/il2cppOutput/  .cpp 640개        [GAME]
+        └── assets/bin/Data/
+            ├── data.unity3d              단일 아카이브
+            ├── boot.config
+            ├── Managed/Metadata/global-metadata.dat      [CLR]
+            └── Managed/Resources/*.dat
+
+---
+
+src/main/AndroidManifest.xml
+
+android.app.lib_name = "game"
+
+ART 가 처음 여는 건 libmain.so 가 아니라 libgame.so 다
+"libmain 이 진입점" 이라고 한 건 구식 Activity 경로
+GameActivity 경로는 다르다
+
+---
+
+cpp/GameActivity/UGAEntry.cpp
+
+nativeUnityPlayerForGameActivityInitialized 
+
+Safeguard the initialization sequence
+[Java][MainThread]  UnityPlayerGameActivity is created
+[Java][MainThread]  UnityPlayerForGameActivity is created
+[C++][MainThread]   libmain.so loads libunity.so
+[C++][MainThread]   libunity.so JNI_OnLoad is called
+[C++][GameThread]   libgame.so android_main is called
+[C++][GameThread]   libunity.so Unity Engine is initialized
+
+---
+
+iPhone/
+├── Unity-iPhone.xcodeproj/     타깃: Unity-iPhone / UnityFramework / GameAssembly
+├── MainApp/main.mm                             [OS]  진입점
+├── Unity-iPhone/Images.xcassets                [OS]
+├── Info.plist  LaunchScreen-*.storyboard       [OS]
+├── Classes/                                    [OS]↔[UNITY] 다리 (.mm 95개)
+│   ├── UnityAppController.mm/+Rendering/+Thermal/+UnityInterface
+│   ├── UI/  UnityView.mm  Keyboard.mm  OrientationSupport.mm
+│   ├── Unity/  DisplayManager.mm  MetalHelper.mm  AVCapture.mm
+│   └── iPhone_Sensors.mm
+├── Frameworks/UnityRuntime.framework           [UNITY] 정적 아카이브
+├── Libraries/                                  [CLR]+[GAME] 재료
+│   ├── baselib.a  654,464
+│   ├── lib_burst_generated.a  2,875,120
+│   ├── Il2CppOptions.cpp  RegisterFeatures.cpp
+│   └── com.unity.inputsystem/  com.unity.purchasing/  com.unity.services.core/
+├── Il2CppOutputProject/
+│   ├── IL2CPP/                 변환기 + libil2cpp 소스   [CLR]
+│   └── Source/il2cppOutput/    .cpp 640개                [GAME]
+└── Data/                                       [GAME]
+    ├── boot.config             gfx-threading-mode=4  gc-max-time-slice=3
+    ├── globalgamemanagers, level0, resources.assets(+.resS)  ← ★ 낱개
+    ├── Managed/Metadata/global-metadata.dat   12,730,668
+    ├── Managed/Resources/*.dat
+    └── Raw/
+
+---
+
+Windows : mono-2.0-bdwgc.dll                   독립된 파일. 눈으로 보임
+Android : libil2cpp.so 안에 [GAME] 과 함께     융합됨. 분리 불가
+iOS     : UnityFramework.framework 에 융합
+
+---
+
+          코드                        에셋                       metadata
+Windows   Managed/*.dll (IL)          낱개 파일                  (불필요, IL 에 있음)
+Android   libil2cpp.so 안 (기계어)    data.unity3d 단일          global-metadata.dat
+iOS       framework 안 (기계어)       낱개 파일                  global-metadata.dat 
+
+---
+
+ProjectSettings.asset
+
+Android: 1 — 명시적으로 IL2CPP 로 바꿔둔 상태
+Windows — 항목 없음 → 기본값 Mono
+iOS — 항목 없음이지만 Mono 를 지원하지 않는 플랫폼이라 IL2CPP 로 강제
+
+Mono 빌드는 IL 을 그대로 복사해 넣고 실행 중에 JIT 한다.
+
+---
+
+Windows/Universal2D_Data/Managed/
+    mscorlib.dll                  4,632,064   ← IL
+    UnityEngine.CoreModule.dll    1,998,760   ← IL
+    Unity.InputSystem.dll         1,137,152   ← IL
+    … dll 150여 개
+
+Android/…/assets/bin/Data/Managed/
+    Metadata/global-metadata.dat              ← .dll 이 한 개도 없다
+    Resources/*.dat
+
+iPhone/Data/Managed/
+    Metadata/global-metadata.dat  12,730,668  ← 마찬가지
+    Resources/*.dat
+
+IL2CPP 쪽에는 .dll 이 아예 없다. 전부 C++ 로 변환돼 libil2cpp.so / libGameAssembly.a 로 들어갔고
+타입 정보만 global-metadata.dat 으로 남았다
+
+Mono 쪽은 반대로 .dll 이 그대로 있고 별도 metadata 파일이 없다
+어셈블리 자체가 metadata 를 품고 있으니까
+
+---
+
+unityLibrary/libs/unity-classes.jar
+
+bitter/jnibridge/JNIBridge.class
+com/unity3d/player/AndroidAdvertisingIdHelper.class
+com/unity3d/player/ApplicationExitInfoProvider.class
+com/unity3d/player/AudioDeviceObserver.class
+...
+
+Android 앱은 진입점이 Activity 여야 하고 Activity 는 Java 클래스다
+
+---
+
+Java 에서 네이티브 코드를 부르는 절차
+
+Java:    System.loadLibrary("game")
+  ↓
+ART:     libgame.so 를 dlopen
+  ↓
+ART:     그 .so 에서 "JNI_OnLoad" 심볼을 찾아 호출     ← 규약
+  ↓
+native:  JNIEnv 를 받아 native 메서드를 등록
+
+---
+
+JNI_OnLoad 는 Unity 가 정한 이름이 아니라 JNI 명세가 정한 이름
+
+libmain.so   (6,696 bytes)   export 심볼 1개: JNI_OnLoad
+libunity.so  (21.5 MB)       export 347개 중 JNI_OnLoad 포함
+
+---
+
+카메라, 오디오 볼륨, 노치 감지, 앱 종료 원인 조회 — 이런 건 Android Framework API 로만 얻을 수 있다
+C++ 에서 직접 못 부른다. 
+그래서 Camera2Wrapper.class, AudioVolumeHandler.class, DisplayCutoutSupport.class 가 존재하고, 
+JNIBridge.class 가 그 왕복을 중개한다
+
+---
+
+Java 파이프라인  ─ [OS] 세계
+  UnityPlayerGameActivity.java
+  Camera2Wrapper.java …
+      │ javac
+      ▼
+  .class  (JVM bytecode)  ← unity-classes.jar 안의 그것
+      │ d8 / r8
+      ▼
+  classes.dex  (Dalvik bytecode)
+      │ ART: 설치 시 dex2oat (AOT) + 실행 중 JIT
+      ▼
+  기계어
+
+---
+
+C# 파이프라인  ─ [GAME]+[CLR] 세계
+  MyScript.cs, UnityEngine.CoreModule.dll …
+      │ Roslyn
+      ▼
+  .dll  (CIL / MSIL)
+      │ il2cpp.exe
+      ▼
+  il2cppOutput/*.cpp  (640개)
+      │ clang (NDK)
+      ▼
+  libil2cpp.so  → 기계어
+
+두 파이프라인은 만나지 않는다. C# 이 DEX 로 변환되는 일은 없다
+
+---
+
+─ 앱 프로세스 (Zygote 에서 fork) ─────────────────────────
+                                                          
+  ART                          IL2CPP 런타임               
+   - DEX 실행                    - libil2cpp.so 안         
+   - Java 객체 힙                 - C# 객체 힙              
+   - ART GC                      - Boehm GC ★             
+   - dex2oat / JIT               - (이미 AOT 됨)           
+      │                             │                     
+      └────────── JNI ──────────────┘                     
+                                                          
+  libunity.so  (C++ 엔진. 관리 런타임 아님)                  
+──────────────────────────────────────────────────────────
+
+---
+
+C# 에서 Java 를 부를 때 
+
+using (var activity = new AndroidJavaClass("com.unity3d.player.UnityPlayer").GetStatic<AndroidJavaObject>("currentActivity"))
+{
+    activity.Call("someMethod");
+}
+
+C# 쪽 AndroidJavaObject 는 Java 객체를 붙잡는 글로벌 참조(JNI global ref) 를 들고 있는데, 
+이건 ART GC 가 그 Java 객체를 못 거두게 막는다. 
+
+C# 쪽 GC 가 AndroidJavaObject 를 거두더라도 
+finalizer 가 돌기 전까지는 Java 참조가 안 풀린다. 
+
+두 GC 사이에 수동 해제가 끼어야
+
+---
+
+level0
+
+Build Settings 의 0번 씬
+씬이 여러 개면 level0, level1, … 로 늘어나고 각각에 sharedassets0.assets 가 짝지어진다
+
+---
+
+.storyboard
+
+Apple 의 UI 레이아웃 XML
+iOS 표준 포맷
+
+LaunchScreen-iPhone.storyboard
+LaunchScreen-iPad.storyboard
+LaunchScreen-iPhoneLandscape.png
+
+앱이 시작할 때 엔진이 뜨기 전에 보여줄 첫 화면
+
+iOS 는 앱 실행 직후 즉시 뭔가를 그려야 해서(사용자가 탭했는데 검은 화면이면 안 되니까) 
+이 역할을 OS 가 맡는다
+
+Unity 는 [OS] 층 재료로 이걸 생성해줄 뿐
+Player Settings 의 Splash Screen 설정이 여기로 변환된다
+
+---
+
+.a 파일
+아카이브
+정적 라이브러리
+
+여러 개의 오브젝트 파일(.o)을 하나로 묶은 것
+압축도 링크도 안 된 그냥 묶음
+
+---
+
+동적 (.so/.dll)  : 실행 중 로드. 이미 링크 완료. 파일이 통째로 메모리에 매핑됨
+정적 (.a)        : 빌드 중 링크. 링커가 필요한 .o 만 골라 꺼내 씀. 앱에 녹아듦
+
+그래서 UnityRuntime 이 222 MB 인데도 최종 앱은 그만큼 커지지 않는다. 안 쓰는 .o 는 링커가 버린다
+Android 의 unity.strip-engine-code=true 가 하는 일을 iOS 는 링커가 자동으로 한다
+
+---
+
+Libraries/baselib.a               654,464     플랫폼 추상화 계층
+Libraries/lib_burst_generated.a 2,875,120     Burst 컴파일 산출물
+Frameworks/UnityRuntime.framework/UnityRuntime  ← 엔진 (거대한 .a)
+
+---
+
+gfx
+graphics 의 관용 축약
+boot.config 의 gfx-* 는 전부 렌더링 스레딩 설정
+
+Windows : gfx-enable-gfx-jobs=1
+          gfx-threading-mode=6
+iOS     : gfx-threading-mode=4        ← gfx-enable-gfx-jobs 가 없다
+
+---
+
+GfxThreadingMode
+Rendering.RenderingThreadingMode
+
+Direct                                   메인 스레드가 직접 그래픽스 명령 제출
+SingleThreaded                           내부 디버깅용
+MultiThreaded                            메인이 중간 명령 생성 → 렌더 스레드가 API 명령 변환
+LegacyJobified                           워커 여럿이 중간 명령 생성 → 렌더 스레드 1개가 변환
+NativeGraphicsJobs                       메인 생성 → 렌더 스레드 변환 + 워커에 job 분배
+NativeGraphicsJobsWithoutRenderThread    워커들이 생성과 변환을 다 함
+NativeGraphicsJobsSplitThreading         워커들이 생성 + 렌더 스레드가 워커에 변환을 분배
+
+---
+
+(1) Java 언어           .java 소스 문법
+(2) JVM bytecode        .class 파일 안의 명세
+(3) Java 세계의 규약     표준 라이브러리, 그리고 JNI 같은 인터페이스 명세
+
+Android 는 (1)과 (3)은 가져왔고 (2)는 버렸다
+
+---
+
+Android 는 정말 Linux 이고 앱은 정말 프로세스다
+그런데 그 프로세스가 태어나는 방식
+
+The Zygote is a process in the Android operating system 
+that acts as the root of all system and app processes 
+with the same application binary interface (ABI)
+
+The init daemon spawns the Zygote process when the Android OS is initialized
+The Zygote forks the process and changes the PID, cgroup, and other information
+
+---
+
+부팅
+  init (PID 1)
+    └─ Zygote 프로세스 생성
+         ├─ libart.so 로드 (ART 런타임)
+         ├─ 프레임워크 클래스 preload (Activity, View, Intent …)
+         └─ 대기
+              │
+     앱 실행 요청 (system_server → Unix domain socket)
+              │
+              └─ fork() ──▶ 내 앱 프로세스
+                             ART 가 이미 초기화된 상태로 시작
+                             
+---
+
+앱 프로세스는 exec 로 새 프로그램을 올리는 게 아니라 Zygote 를 fork 한다
+그래서 프로세스가 생기는 순간 이미 관리 런타임이 안에 있다
+
+프레임워크 클래스도 이미 메모리에 있고, fork 라서 copy-on-write 로 공유된다
+
+프로세스의 초기 이미지가 이미 ART 를 품은 Zygote 의 복사본
+
+---
+
+Android runtime (ART) is the managed runtime 
+used by apps and some system services on Android. 
+
+ART and its predecessor Dalvik were originally created specifically for the Android project
+ART as the runtime executes the Dalvik executable (DEX) format and DEX bytecode specification.
+
+---
+
+JVM bytecode (.class)            DEX bytecode (.dex)
+─────────────────────            ────────────────────
+스택 머신                        레지스터 머신
+클래스 하나당 파일 하나          여러 클래스를 파일 하나에
+상수 풀이 클래스마다 중복        상수 풀 공유 → 중복 제거
+
+---
+
+빌드 파이프라인
+
+.java
+  │ javac
+  ▼
+.class  (JVM bytecode)     ← unity-classes.jar 안
+  │ d8 / r8
+  ▼
+classes.dex  (DEX bytecode)   ← APK 에 들어가는 것
+  │ ART: 설치 시 dex2oat (AOT) + 실행 중 JIT
+  ▼
+기계어
+
+---
+
+Dalvik VM 은 ART 의 전신이고 Android 5.0 에서 교체됐다
+포맷 이름은 여전히 "Dalvik Executable" 
+
+---
+
+JNI 는 JVM 의 기능이 아니라 "명세"
+"관리 런타임과 네이티브 코드가 어떻게 대화하는가" 를 정한 규약
+ART 가 그 규약을 구현한다
+
+Android 가 나올 때 Java 세계에는 이미 JNI 로 작성된 방대한 네이티브 코드가 있었고, 
+그 생태계를 이어받는 게 이득이었다
+
+JavaVM*, JNIEnv*, jobject, jclass 같은 타입 이름을 그대로 쓴다
+
+---
+
+Unity 게임 코드는 DEX 가 아니다.  →  C++ 이고 .so 다 (libil2cpp.so, libunity.so)
+그런데 Android 의 기능은 Java API 로만 노출된다.
+
+---
+
+─ 앱 프로세스 (Zygote 에서 fork) ─────────────────────────────────
+                                                                  
+  ┌─ ART (libart.so) ────────────┐  ┌─ IL2CPP 런타임 ──────────  
+  │  classes.dex 실행            │  │  libil2cpp.so 안에 링크됨  
+  │  ART 관리 힙                 │  │  C# 객체 힙                
+  │  ART GC                      │  │  Boehm GC                  
+  │                              │  │                            
+  │  UnityPlayerGameActivity     │  │  내 MonoBehaviour          
+  │  Camera2Wrapper              │  │  UnityEngine.*             
+  │  JNIBridge                   │  │  mscorlib                  
+  └──────────┬───────────────────┘  └───────────┬──────────────  
+             │                                  │                
+             └────────── JNI ───────────────────┘                
+                          │                                       
+  ┌───────────────────────▼───────────────────────────────────┐   
+  │  libunity.so — Unity C++ 엔진 (관리 런타임 아님)          │   
+  │  libgame.so — GameActivity bridge                         │   
+  │  libmain.so — loader stub                                 │   
+  └───────────────────────────────────────────────────────────┘   
+                                                                  
+  Linux 프로세스: 파일 디스크립터, mmap, pthread, /proc …          
+──────────────────────────────────────────────────────────────────
+
+---
+
+DEX → 네이티브 AOT 경로
+dex2oat
+
+Android 5.0 (ART 도입)
+  설치 시점에 전량 AOT 컴파일
+  → 설치가 매우 느리고 저장 공간을 많이 먹음
+
+---
+
+Android 7.0 (Nougat) 이후 — 현재
+  설치 시 컴파일 안 함
+  → interpreter / JIT 로 일단 실행
+  → 실행하면서 프로파일 수집 (어느 메서드가 자주 도는지)
+  → 기기가 놀고 있고 충전 중일 때 백그라운드 dex2oat 가 hot method 만 AOT
+
+---
+
+              언제           어디서            범위         결과물이 어디에
+IL2CPP        빌드 시        개발자 PC         전량         앱 안에 포함되어 배포
+dex2oat       설치 후        사용자 기기       hot 만       기기에만. 배포물엔 없음
+Mono JIT      실행 중        사용자 기기       호출된 것    아무데도 안 남음
+
+---
+
+그러니까 Unity Android 앱 안에서는 AOT 가 두 번 일어난다. 
+C# 은 내 PC 에서 IL2CPP 로, 
+Java 는 사용자 기기에서 dex2oat 로
+
+---
+
+Dalvik executable format          (dex-format)          ← 파일 레이아웃
+Dalvik bytecode format            (dalvik-bytecode)     ← 명령어의 의미
+
+비유하자면 PE 포맷과 x86 명령어 집합의 차이다
+컨테이너와 명령어의 언어
+이론적으로 같은 bytecode 를 다른 컨테이너에 담을 수도 있다
+
+[format]  .dex 파일 안 구조
+  → "파일 안 어디에 무엇이 있는가"
+
+
+[bytecode]  data 섹션 안에 든 명령어들
+  → "그 명령어가 무엇을 하는가"
+
+---
+
+"네이티브 코드" 의 기준
+기준은 "무슨 언어로 썼나" 가 아니라 "무엇 위에서 도나" 다.
+
+관리 코드 (managed)      ART 위에서 돈다. DEX 를 거친다.
+    Java, Kotlin          
+
+네이티브 코드 (native)    CPU 가 직접 실행한다. .so
+    C, C++
+
+---
+
+요즘 Android 앱 개발의 권장 언어는 Kotlin
+.kt → .class → .dex 를 타서 ART 위에서 돈다
+
+---
+
+JNI 는 양방향
+
+Java → native    Java 쪽에 native 키워드로 선언 + System.loadLibrary
+
+native → Java    JNIEnv* 로 FindClass / GetMethodID / CallVoidMethod
+
+---
+
+Android 는 Java 언어와 Java 세계의 규약을 가져왔다. 
+다만 실행 포맷은 JVM bytecode 가 아니라 DEX 로 갈아탔고, 
+그걸 실행하는 건 JVM 이 아니라 ART 다.
+
+시스템 라이브러리는 관리 코드(Java/Kotlin) API 로 노출된다.
+
+ART 위에서 돌지 않고 CPU 가 직접 실행하는 코드(.so) 를 네이티브 코드라 부른다.
+
+관리 코드와 네이티브 코드가 양방향으로 대화하는 방법을 정한 규약이 JNI 이고, 
+이건 Java 세계에서 물려받은 명세를 ART 가 구현한 것이다.
+
+---
+
+.oat   dex2oat 산출물. ELF. 네이티브 코드 + 원본 DEX 참조 + 메타데이터
+.art   힙 이미지. 자주 쓰는 객체를 미리 만들어둔 것 (부팅·시작 가속)
+.vdex  Android 8.0 부터. 검증된 DEX 를 담는 별도 컨테이너
+
+dex2oat  =  "DEX to OAT" 변환 도구
+그 변환이 AOT(ahead-of-time) 컴파일
+
+---
+
+그 힙의 모든 객체는 java.lang.Object 를 루트로 하는 타입 체계에 속한다. 
+타입 시스템 자체는 Java 것
+
+Kotlin 의 Any 도 컴파일되면 java.lang.Object
+
+---
+
+파일 시스템
+
+StreamingAssets 가 APK 안이라 System.IO.File 이 안 통한다
+
+You cannot use synchronous filesystem APIs, such as the C# System.IO.File class, 
+to access the StreamingAssets folder on the WebGL and Android platforms
+
+데스크톱에서 잘 돌던 설정 파일 로딩 코드가 안드로이드에서 실패하는 원인
+
+UnityWebRequest 로 비동기 읽기를 해야 한다
+
+---
+
+빌드의 launcher/build.gradle
+noCompress = ['.unity3d', '.ress', '.resource', '.obb', '.bundle', '.unityexp', ...] 
+
+압축을 끄는 이유는 mmap 하기 위해
+압축돼 있으면 엔진이 메모리 매핑을 못 한다
+
+---
+
+생명주기 — 데스크톱에 없는 개념
+
+onPause / onResume       홈 버튼, 전화 수신, 알림 확인
+포커스 상실              분할 화면, 다이얼로그
+프로세스 사망            예고 없음. 메모리 부족하면 시스템이 죽인다
+
+C# 쪽 대응물이 OnApplicationPause(bool), OnApplicationFocus(bool)
+OnApplicationQuit 은 안 불릴 수 있다
+프로세스가 갑자기 죽으면 아무것도 안 온다
+
+그래서 저장은 OnApplicationPause(true) 시점에 해야 한다
+
+---
+
+unity-classes.jar
+ApplicationExitInfoProvider.class
+
+다음에 켰을 때 "왜 죽었는지" 를 조회
+
+---
+
+화면
+
+Screen.safeArea       노치·펀치홀·제스처 바를 뺀 실제 안전 영역
+Screen.dpi            물리 크기 계산에 필요
+종횡비                18:9 ~ 21:9 까지. 데스크톱 16:9 고정과 다름
+Screen.orientation    회전 처리
+
+<meta-data android:name="unity.render-outside-safearea" android:value="True" />
+<meta-data android:name="notch.config" android:value="portrait|landscape" />
+
+노치 영역까지 그리되 UI 는 Screen.safeArea 안에 배치하는 게 표준 패턴
+
+---
+
+배포·크기
+
+AAB 필수              Play 스토어는 APK 를 안 받는다
+base module 200 MB    초과하면 Play Asset Delivery 필요
+
+---
+
+Android
+
+앱 (Java/Kotlin 또는 .so)
+   │  Framework API 호출 — 예: AudioManager.setStreamVolume()
+   ▼
+Framework 서비스
+   │  Binder IPC — 프로세스 경계를 넘는다
+   ▼
+네이티브 데몬 (C++ 별도 프로세스)
+   SurfaceFlinger / AudioFlinger / MediaServer / CameraServer …
+   │
+   ▼
+HAL (C/C++)
+   │
+   ▼
+Linux 커널 드라이버
+
+---
+
+Framework 코드는 별도 프로세스가 아니라 내 앱 프로세스 안에서 돈다
+
+┌─ 내 앱 프로세스 ────────────────────────────────────────
+│  내 C# / Unity 엔진                                     
+│  UnityPlayerGameActivity (Java)                        
+│  ★ Android Framework 클래스 (AudioManager, View, …)     
+│    android.jar 의 클래스들                
+│    실체는 Binder 프록시(클라이언트 스텁)        
+│  ★ SP HAL (OpenGL / Vulkan 드라이버)        
+└────────────────────────┬───────────────────────────────
+                         │ Binder IPC ★ 여기가 프로세스 경계
+        ┌────────────────┼────────────────┐
+        ▼                ▼                ▼
+┌─ system_server ─┐ ┌ SurfaceFlinger ┐ ┌ mediaserver ┐
+│ Java. 프레임워크    C++            │ │ AudioFlinger│
+│ 서비스 대부분       화면 합성      │ │ C++         │
+└────────┬────────┘ └───────┬────────┘ └──────┬──────┘
+         │                  │                 │
+         └──────── Binder ──┴─────────────────┘
+                         ▼
+          ┌─ HAL 프로세스들 (vendor 파티션) 
+          │  camera HAL, audio HAL, ...    
+          └──────────────┬─────────────────
+                         │ ioctl / sysfs / devfs
+                         ▼
+                 Linux 커널 드라이버
+                         ▼
+                   실제 하드웨어
+
+---
+
+Framework 서비스 = system_server
+
+system_server 는 Java 로 된 거대한 단일 프로세스이고
+Android 프레임워크 서비스 대부분이 그 안에 스레드로 산다
+
+ActivityManagerService (AMS)     Activity 생명주기를 통제하는 주체
+WindowManagerService (WMS)       창 배치, z-order, 포커스
+PackageManagerService (PMS)      앱 설치, 권한, manifest 파싱
+InputManagerService (IMS)        터치 이벤트가 여기서 앱으로 배달된다
+PowerManagerService              화면 켜짐/꺼짐, wakelock
+NotificationManagerService
+AudioService                     AudioManager 호출이 여기로 온다
+
+---
+
+Unity Activity 를 만들고 죽이는 게 AMS
+"OS 가 만들고 OS 가 죽인다" 의 그 OS 가 구체적으로는 이 프로세스
+Zygote 에게 fork 를 요청하는 것도, 메모리가 부족할 때 앱을 회수하는 것도 여기서 결정
+
+---
+
+내 프로세스: AudioManager 객체 (Framework 클래스, 내 프로세스 안)
+   │ Binder 트랜잭션 — 인자를 Parcel 로 직렬화
+   ▼
+system_server: AudioService (Java 스레드)
+   │ 권한 확인, 정책 판단
+   │ Binder
+   ▼
+mediaserver: AudioFlinger (C++)
+   │ 실제 믹싱, 라우팅
+   │ Binder
+   ▼
+audio HAL 프로세스 (vendor)
+   │ ioctl
+   ▼
+커널 ALSA 드라이버 → 코덱 칩
+
+---
+
+네이티브 데몬
+
+init       PID 1. 부팅 시퀀스, .rc 스크립트 해석, 서비스 감시, Zygote 생성
+logd       logcat. 링 버퍼 관리
+healthd    배터리·충전 상태 감시
+storaged   저장소 I/O 통계
+servicemanager   ★ Binder 이름 등록소. "AudioService 를 달라" 를 해결해주는 곳
+
+SurfaceFlinger/AudioFlinger 는 이보다 위에
+
+---
+
+SurfaceFlinger
+
+SurfaceFlinger accepts buffers of data from multiple sources, 
+composites them, and sends them to the display.
+
+Unity 앱이 SurfaceView 에 그린 프레임 버퍼가 SurfaceFlinger 로 간다
+그리고 상태바, 네비게이션 바, 다른 앱의 창과 합성돼 화면에 나간다
+앱이 화면에 직접 그리는 게 아니라, 버퍼를 만들어 넘기면 SurfaceFlinger 가 합성한다.
+
+---
+
+A hardware abstraction layer (HAL) is type of abstraction layer 
+with a standard interface for hardware vendors to implement
+
+A HAL allows hardware vendors to implement 
+lower-level, device-specific features 
+without affecting or modifying code in higher-level layers
+
+---
+
+Android 8 이후
+
+Binderized HAL
+A HAL that communicates with other processes using binder IPC calls
+Binderized HALs run in a separate process from the client that uses them
+HALs written for Android 8 and higher are binderized
+
+별도 프로세스이고, servicemanager 에 등록되며, AIDL 로 정의된 인터페이스를 통해 대화한다
+HIDL 은 Android 13 에서 deprecated 되고 AIDL 로 통일됐다
+
+---
+
+Same Process (SP) HAL
+A restricted set of wrapped HALs. 
+Membership in the set is controlled by Google
+
+SP HALs include:
+
+Stable C mapper 5 HAL
+OpenGL
+Vulkan
+android.hidl.memory@1.0
+android.hardware.renderscript@1.0
+
+---
+
+GPU 드라이버는 내 앱 프로세스에 직접 로드된다
+Binder 를 안 탄다
+
+드로우 콜 하나마다 프로세스 경계를 넘으면 게임이 성립하지 않는다
+프레임당 수백~수천 번 부르는 그래픽스 API 는 IPC 를 감당할 수 없다
+
+그래서 Google 이 GPU 만 예외로 뒀다
+
+오디오 볼륨 조절   초당 몇 번        → Binder 왕복 OK
+드로우 콜         프레임당 수백 번   → 같은 프로세스
+
+---
+
+HAL 과 커널 드라이버의 차이
+
+커널 드라이버        하드웨어에 직접 닿는 최소한
+  - 레지스터 읽기/쓰기
+  - 인터럽트 처리
+  - DMA 설정, 메모리 매핑
+  - ioctl / sysfs / devfs 로 유저스페이스에 창구를 연다
+
+HAL                유저스페이스에서 정책과 알고리즘
+  - 카메라: 3A(오토포커스/노출/화이트밸런스), ISP 파이프라인 구성,
+            버퍼 포맷 협상, 멀티 카메라 전환
+  - 오디오: 라우팅 정책, 이펙트 체인, 지연 관리
+  → "그 능력을 Android 가 기대하는 모양으로 만드는 법"
+
+---
+
+커널 드라이버:  MIPI CSI 로 들어오는 픽셀 스트림을 받아 메모리에 DMA
+                "데이터를 여기 놓았다" 까지
+
+HAL:            어느 센서 모드로 갈지, ISP 게인을 얼마로, 노이즈 리덕션
+                강도를 어떻게, 어느 순간에 초점을 옮길지
+                → 수만 줄짜리 이미지 처리 알고리즘
+
+---
+
+안드로이드 기기
+
+SoC       Snapdragon / Exynos / Dimensity / Tensor / Kirin / Unisoc …
+GPU       Adreno / Mali / PowerVR / Xclipse …
+카메라 ISP  제조사마다 완전히 다름
+디스플레이  패널 컨트롤러가 다 다름
+모뎀·센서·NFC·지문 …  전부 다름
+
+같은 Android 버전이 수천 종의 서로 다른 SoC 위에서 돌아야 한다. 
+HAL 은 이 하드웨어들이 Android 에게 똑같이 보이게 만드는 계층
+
+CameraManager 를 부르는 앱 코드는 
+그 밑이 Qualcomm 인지 MediaTek 인지 몰라도 된다
+
+---
+
+라이선스 경계
+
+커널은 GPLv2 라서 커널에 넣는 코드는 소스 공개 의무가 붙는다
+HAL 은 유저스페이스이고 AOSP 는 Apache 2.0 이라 벤더가 바이너리 블랍으로 납품할 수 있다
+
+Qualcomm 이 Adreno 드라이버 소스를, 
+삼성이 ISP 알고리즘을 공개하고 싶어하지 않는다.
+
+---
+
+// ── 플랫폼 분기 없이 되는 것들 ──
+Screen.sleepTimeout = SleepTimeout.NeverSleep;   // 화면 안 꺼지게
+Handheld.Vibrate();                              // 진동
+var safe = Screen.safeArea;                      // 노치 제외 영역
+var path = Application.persistentDataPath;       // 쓰기 가능 경로
+if (Input.GetKeyDown(KeyCode.Escape)) { … }      // 뒤로 가기 버튼이 여기로 온다
+
+---
+
+권한은 Unity 가 전용 API 를 준다.
+
+void TryCamera()
+{
+    if (!Permission.HasUserAuthorizedPermission(Permission.Camera))
+        Permission.RequestUserPermission(Permission.Camera);
+}
+
+---
+
+Unity 가 안 감싼 것 — AndroidJavaObject
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    using (var version = new AndroidJavaClass("android.os.Build$VERSION"))
+        return version.GetStatic<int>("SDK_INT");
+#else
+    return 0;
+#endif
+
+Build$VERSION 의 $ 가 중첩 클래스 표기
+Java 의 Build.VERSION 이 JVM 이름으로는 android.os.Build$VERSION
+
+---
+
+현재 Activity 를 얻는 게 출발점
+
+// 호출자가 반드시 Dispose 해야 한다
+static AndroidJavaObject GetCurrentActivity()
+{
+    using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+        return player.GetStatic<AndroidJavaObject>("currentActivity");
+}
+
+---
+
+Toast 띄우기
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    using (var activity = GetCurrentActivity())
+    {
+        // Toast 는 UI 스레드에서만 만들 수 있다.
+        // Unity 코드는 GameThread 에서 도니 넘겨줘야 한다.
+        activity.Call("runOnUiThread", new AndroidJavaRunnable(() =>
+        {
+            using (var toastClass = new AndroidJavaClass("android.widget.Toast"))
+            using (var toast = toastClass.CallStatic<AndroidJavaObject>("makeText", activity, message, 0))
+            {
+                toast.Call("show");
+            }
+        }));
+    }
+#endif
+
+"Unity 메인 스레드 ≠ Android UI 스레드" 가 여기서 실무 문제로 나타난다. 
+runOnUiThread 를 안 거치면 예외가 난다
+
+---
+
+AAB   Android App Bundle. 배포용 중간 형식.
+      Play 스토어가 이걸 받아서 기기마다 맞는 APK 를 생성해 내려준다.
+
+Unity 에서는 Build Settings 의 Build App Bundle (Google Play) 체크박스로 갈린다
+
+---
+
+유니티를 안드로이드로 포팅하면 빈 프로젝트인데도 .apk 가 40 MB
+
+최소한의 Java Android 앱이면 수백 KB ~ 1MB 안팎까지
+
+Android Studio의 일반적인 Java 템플릿처럼 AndroidX를 붙이면 1~4 MB 정도
+
+---
+
+C# scripts
+   ↓
+IL2CPP
+   ↓
+libil2cpp.so
+
+Unity Engine
+   ↓
+libunity.so
+
+이 두 덩어리만으로 이미 일반 Java 앱과 기준선이 크게 달라집니
+
+---
+
+Android framework
+
+A group of Java classes, interfaces, and other precompiled code upon which apps are built
+Android framework code runs inside an app's process
+
+System services
+
+System services are modular, focused components 
+such as system_server, SurfaceFlinger, and MediaService
+
+Native daemons and libraries
+
+Native daemons in this layer include init, healthd, logd, and storaged
+These daemons interact directly with the kernel or other interfaces
+and don't depend on a userspace-based HAL implementation
+
+---
+
+타입 있는 C# 래퍼를 직접 쓴다
+문자열을 한 곳에 가두고 나머지 코드는 타입 안전하게 만든다
+
+public static class AndroidDevice
+{
+    static AndroidJavaObject Activity
+    {
+        get
+        {
+            if (_activity == null)
+            {
+                using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                    _activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+            }
+            return _activity;
+        }
+    }
+
+    ...
+
+    using (var v = new AndroidJavaClass("android.os.Build$VERSION"))
+    using (var b = new AndroidJavaClass("android.os.Build"))
+}
+
+---
+
+Win32 API                        OS 가 앱에게 주는 얼굴
+   ↓
+커널 서브시스템 (I/O Manager)    OS 가 드라이버들을 orchestrate
+   ↓
+드라이버 인터페이스 (WDM/WDF)    ← 벤더와의 계약. 커널 안에 있다
+   ↓
+장치 드라이버 (벤더가 구현, 커널 모드)
+   ↓
+하드웨어
+
+---
+
+Microsoft 가 커널을 소유하고
+드라이버 ABI 를 버전 간 안정적으로 유지하겠다고 약속
+
+Linux 는 그 약속을 명시적으로 거부한다
+
+Documentation/process/stable-api-nonsense.rst
+
+Linux does not have a binary kernel interface,
+nor does it have a stable kernel interface.
+
+The kernel-to-userspace interface (the syscall interface) is very stable over time 
+and will not break
+
+Linux 가 안정성을 약속하는 유일한 경계가 유저스페이스 경계
+커널 내부는 언제든 바꾼다
+
+---
+
+Windows   UMDF (User-Mode Driver Framework)  프린터·USB 드라이버를 유저 모드로
+macOS     DriverKit (10.15~)                 커널 확장을 대체, 유저스페이스로
+Linux     FUSE, libusb, vfio, DPDK           파일시스템·USB·네트워크를 유저스페이스로
+
+---
+
+struct camera {
+    int id;
+    int speed;
+};
+
+int s = c->speed;
+
+---
+
+컴파일하면 이름이 사라진다
+
+struct camera {
+    int id;      // 0번지부터 4바이트
+    int speed;   // 4번지부터 4바이트
+};
+
+ldr  w0, [x1, #4]      "x1 이 가리키는 주소에서 4를 더한 자리를 읽어라"
+
+---
+
+ABI 는 "그 숫자들에 대한 약속"
+
+API   사람이 읽는 약속.        "speed 라는 이름의 필드가 있다"
+ABI   기계가 지키는 약속.      "speed 는 4번지에 있다. 4바이트다"
+
+---
+
+구조체의 각 필드가 몇 번지에 있는가        
+함수 인자를 어느 레지스터에 담는가
+반환값은 어디로 돌려주는가
+구조체가 몇 바이트를 차지하는가 (padding 포함)
+
+---
+
+ABI 가 깨진다
+
+// 커널 버전 2
+struct camera {
+    int id;        // 0번지
+    int version;   // 4번지   ★ 새로 끼어들었다
+    int speed;     // 8번지   ★ 밀려났다
+};
+
+소스 코드 수준(API)에서는 아무 문제 없다
+
+---
+
+그런데 이미 컴파일해둔 드라이버 바이너리는 어떻게 되나
+
+그 바이너리 안:  ldr w0, [x1, #4]     ← 여전히 4번지를 읽는다
+실제 4번지에는:  version 이 앉아 있다
+
+---
+
+Depending on the version of the C compiler you use
+different kernel data structures will contain different alignment of structures
+
+---
+
+같은 커널 소스라도 이런 것들이 다르면 배치가 달라진다
+
+컴파일러 버전이 다르면          → padding 이 달라질 수 있다
+커널 빌드 옵션이 다르면         → 필드가 있고 없고가 달라진다 (SMP 유무 등)
+
+---
+
+소스가 있다   →  커널이 바뀌면 다시 컴파일하면 된다.
+                 해결 가능.
+
+소스가 없다   → 방법이 없다.
+                바이너리 안의 숫자 4 를 8 로 고칠 방법이 없다.
+                그 드라이버는 그냥 못 쓴다.
+
+그리고 Qualcomm 이나 ARM 은 소스를 안 준다. 
+GPU 드라이버, 카메라 ISP 알고리즘은 회사의 핵심 자산이라 공개하지 않는다
+
+---
+
+상류(upstream)에서 물이 내려온다
+Linux 소스는 한 곳에 원본이 있고, 나머지는 전부 거기서 복사해 간 것
+
+                  kernel.org — Linus 의 저장소
+                여기가 upstream. Linux 의 원본
+                          │
+        ┌─────────────────┼─────────────────┐
+        ▼                 ▼                 ▼
+     Ubuntu            Android           Samsung
+     (복사 + 수정)      (복사 + 수정)     (복사 + 수정)
+
+---
+
+If your driver is in the tree, and a kernel interface changes, 
+it will be fixed up by the person who did the kernel change in the first place
+
+소스를 공개하고 본류에 합친다   →  유지보수를 커뮤니티가 해준다
+                                   ABI 가 깨져도 남이 고쳐준다
+
+안 한다 (out-of-tree)         →   혼자 다 감당해라
+                                  커널 올라갈 때마다 직접 고쳐라
+
+---
+
+get your kernel driver into the main kernel tree
+if your code doesn't fall under this category, good luck, you are on your own here,
+you leech
+
+---
+
+kernel developers find bugs in current interfaces, or figure out a better way to do things. 
+If they do that, they then fix the current interfaces to work better
+
+function names may change, structures may grow or shrink, and function parameters may be reworked.
+
+If Linux had to ensure that it will preserve a stable source interface, 
+a new interface would have been created, 
+and the older, broken one would have had to be maintained over time
+
+---
+
+realize that this article describes the in kernel interfaces, not the kernel to userspace interfaces
+
+The kernel to userspace interface is the one that application programs use, 
+the syscall interface
+
+That interface is very stable over time, and will not break
+
+---
+
+┌─ 유저스페이스 ───────────────────────
+│  일반 프로그램들                      
+└───────────────┬──────────────────────
+                │ syscall — 안 깨진다
+┌───────────────▼──────────────────────┐
+│  커널 내부                           │
+│  여기는 아무 때나 바뀐다             │
+└──────────────────────────────────────┘
+
+---
+
+그 대가로 out-of-tree 드라이버가 고생한다
+
+Google 이 풀어야 했던 문제
+
+1. 수천 종의 서로 다른 하드웨어를 지원해야 한다
+2. 그 하드웨어 코드는 Qualcomm, ARM, Samsung 등이 만든다
+3. 그들은 소스를 공개하지 않는다
+4. 그런데 Android 버전은 계속 올라가야 하고 커널도 올라간다
+
+---
+
+벤더 코드를 커널 안에 두면 어떻게 되나
+
+소스 공개 안 함  →  upstream 에 못 들어감
+                →  커널 바뀔 때마다 벤더가 직접 다시 만들어야 함
+                →  Android 업데이트 한 번에 벤더가 전부 재작업
+                →  그래서 업데이트가 안 온다
+
+---
+
+벤더 코드를 커널 밖으로 빼내자.
+커널 안에는 최소한만 남기고, 나머지는 유저스페이스에 두자
+
+[예전 / 다른 OS]
+   벤더 코드 전부가 커널 안
+   ┌───────────────────────┐
+   │ 커널                   │
+   │   카메라 드라이버 전체   │ ← 3A 알고리즘, ISP 제어, 전부
+   └───────────────────────┘
+
+[Android]
+   ┌───────────────────────┐
+   │ 유저스페이스            │
+   │   ★ HAL 프로세스        │ ← 3A 알고리즘, ISP 제어 (벤더, 비공개)
+   └──────────┬────────────┘
+              │ syscall / ioctl  ← 영원히 안 깨지는 경계
+   ┌──────────▼────────────┐
+   │ 커널                   │
+   │   얇은 드라이버         │ ← 레지스터 읽고 쓰기, 인터럽트, DMA
+   └───────────────────────┘
+
+---
+
+(1) 커널이 올라가도 HAL 은 멀쩡하다
+    syscall 경계는 Linux 가 보장한다
+
+(2) 벤더가 소스를 공개할 필요가 없다
+    유저스페이스 코드라 GPL 의무가 없다
+
+---
+
+HAL 은 아래쪽(커널)으로는 syscall 이라 안전하다. 
+그런데 위쪽(Android 프레임워크)과의 경계도 안정적이어야 한다
+
+그래서 Google 이 AIDL + VINTF 라는 자기 버전의 안정적 인터페이스를 만들었다
+이게 Project Treble
+
+HAL 은 위아래 양쪽 모두 "안 깨지는 계약" 으로 둘러싸여 있다
+
+---
+
+                        Unreal 의 HAL            Android 의 HAL
+
+한 바이너리에 몇 개     하나만                     여러 개 공존 가능
+                        Android 빌드에 Windows     하나의 Android 이미지가
+                        구현은 아예 없다            여러 기기에서 돈다
+
+---
+
+get your kernel driver into the main kernel tree
+
+"본류에 넣어라" 는 말은 "커널이 컴파일될 때 네 드라이버도 항상 같이 컴파일되게 하라" 는 뜻
+
+---
+
+[한 덩어리로 같이 컴파일되는 코드]
+    ABI 라는 개념이 무의미하다.
+    컴파일러가 모든 구조체 배치를 알고 모든 호출을 맞춰준다.
+    필드를 추가하든 순서를 바꾸든 다 같이 갱신된다.
+
+[따로 컴파일된 두 바이너리가 만나는 곳]
+    한쪽이 "4번지" 를 가정하고, 다른 쪽이 "8번지" 에 놓으면 어긋난다.
+
+---
+
+struct RenderObject {
+    int  meshId;
+#if ENABLE_PROFILER
+    int  profilerTag;      // 프로파일러 켤 때만 존재
+#endif
+    int  materialId;
+};
+
+ENABLE_PROFILER=0 로 컴파일하면:   meshId(0번지), materialId(4번지)
+ENABLE_PROFILER=1 로 컴파일하면:   meshId(0번지), profilerTag(4번지), materialId(8번지)
+
+libunity.so       Unity 가 자기 서버에서 ENABLE_PROFILER=0 으로 미리 컴파일해둠
+                  → materialId 는 4번지라고 믿는다
+
+내 게임의 C++     내 PC 에서 나중에 컴파일됨
+                  → 만약 ENABLE_PROFILER=1 로 컴파일하면 8번지라고 믿는다
+
+---
+
+Unity 는 자기가 쓴 플래그를 파일로 동봉해서 내 컴파일도 똑같은 플래그로 하게 만든다
+
+Variations/il2cpp/Release/       ENABLE_PROFILER=0 으로 빌드된 세트
+Variations/il2cpp/Development/   ENABLE_PROFILER=1 로 빌드된 세트
+
+같은 소스인데 플래그가 달라서 서로 호환이 안 되니 물리적으로 다른 폴더에 따로 존재한다
+
+---
+
+2023년
+  Qualcomm 이 어떤 칩의 카메라 코드를 작성
+  → Linux 커널 5.15 에 맞춰 컴파일
+  → 바이너리로 삼성에 납품. 소스는 안 줌
+  → 삼성이 그 폰을 Android 14 로 출시
+
+2026년
+  Google 이 Android 17 을 냄. 커널 6.x 를 요구
+  → 그 커널에서는 카메라 관련 구조체가 바뀌었다
+  → 2023년에 컴파일된 그 드라이버는 4번지를 읽는데
+     실제로는 8번지로 옮겨져 있다
+
+---
+
+삼성이 할 수 있는 것?
+  재컴파일 → 소스가 없다. 불가능
+  Qualcomm 에 요청 → 그 칩 지원은 이미 끝났다. 안 해준다
+
+결과: 그 폰은 Android 17 을 못 받는다
+
+---
+
+배포판 × 커널 버전 × 빌드 옵션 × CPU 아키텍처
+전부에 대해 따로 컴파일해 배포하는 건 현실적으로 불가능
+
+---
+
+두 개의 프로세스 (IPC 로 대화)     →  ABI 문제 없음
+                                      바이트로 직렬화해서 주고받으니까
+
+하나의 프로세스 안 (라이브러리)   →  ABI 문제 발생
+                                     생 포인터를 그대로 넘기니까
+
+---
+
+A 가 라이브러리를 만든다. 헤더 파일을 같이 배포한다.
+
+// ── a.h ── A 가 배포하는 헤더. A 도 B 도 이걸 #include 한다
+struct Camera {
+    int id;      // 0번지
+    int speed;   // 4번지
+};
+
+struct Camera* a_open(void);
+
+A 는 이걸로 a.dll 을 만든다
+
+---
+
+B 는 a.h 를 include 하고 자기 프로그램을 만든다.
+
+// ── b.c ── B 가 컴파일해서 b.exe 가 된다
+#include "a.h"
+
+int main(void) {
+    struct Camera* c = a_open();   // A 의 메모리 주소를 받는다
+    int s = c->speed;              // 그 메모리를 직접 읽는다
+    return s;
+}
+
+---
+
+c 는 A 가 소유한 메모리를 가리키는 생 포인터다
+복사도 없고 변환도 없다. B 가 그 주소에 직접 손을 뻗는다.
+
+그리고 컴파일된 b.exe 안에는 이런 기계어가 박혀 있다.
+
+ldr  w0, [x1, #4]      "받은 주소에서 4를 더한 자리를 읽어라"
+
+---
+
+이제 A 가 구조체를 바꾼다
+
+// ── a.h (버전 2) ──
+struct Camera {
+    int id;        // 0번지
+    int version;   // 4번지   새로 끼어들었다
+    int speed;     // 8번지   밀려났다
+};
+
+A 는 a.dll 을 다시 컴파일해서 배포한다. b.exe 는 그대로다.
+
+---
+
+런타임:
+  a.dll 이 만든 메모리:  [id][version][speed]
+                          0    4        8
+
+  b.exe 가 읽는 자리:    4번지
+  실제 4번지에 있는 것:   version
+
+  → B 는 version 값을 speed 라고 믿는다
+
+---
+
+ABI 호환성 지키기
+
+기법 (a) — 뒤에만 추가한다
+
+// 나쁨: 중간에 끼워넣기 → 뒤의 오프셋이 전부 밀린다
+struct Camera { int id; int version; int speed; };
+
+// 좋음: 뒤에만 붙이기 → 기존 오프셋이 안 변한다
+struct Camera { int id; int speed; int version; };
+
+---
+
+기법 (b) — 크기를 먼저 알려준다
+
+struct Config {
+    int cbSize;      // 첫 필드. 호출자가 자기 버전의 크기를 채운다
+    int id;
+    int speed;
+    // 나중 버전에서 여기 추가
+};
+
+// 호출자
+struct Config cfg;
+cfg.cbSize = sizeof(cfg);    // "나는 이만큼 아는 버전이다"
+
+---
+
+기법 (c) — 아예 안 보여준다 (불투명 포인터)
+
+// 헤더에는 이것만
+struct Camera;                          // 내용을 안 밝힌다
+
+struct Camera* cam_open(void);
+int  cam_get_speed(struct Camera* c);   // 함수로만 접근
+void cam_close(struct Camera* c);
+
+---
+
+기법 (d) — 새 버전은 새 인터페이스로
+
+UNITY_REGISTER_INTERFACE_GUID(0x95355348d4ef4e11ULL, 0x9789313dfcffcc87ULL, IUnityGraphicsVulkan)
+UNITY_REGISTER_INTERFACE_GUID(0x329334C09DCA4787ULL, 0xB347DD92A0097FFCULL, IUnityGraphicsVulkanV2)
+
+---
+
+and the older, broken one would have had to be maintained over time, 
+leading to extra work for the USB developers. 
+
+Since all Linux USB developers do their work on their own time, 
+asking programmers to do extra work for no gain, for free, is not a possibility
+
+the in-kernel USB interfaces have undergone at least three different reworks
+A change from a synchronous model of data streams to an asynchronous one
+This reduced the complexity of a number of drivers and increased the throughput of all USB drivers
+
+---
+
+AIDL
+Android Interface Definition Language
+
+interface ICamera {
+    void open(int cameraId);
+    void close();
+}
+
+라고 정의하면 AIDL compiler가 Binder IPC에 필요한 proxy/stub 코드를
+Java/C++/NDK/Rust 쪽으로 생성합니다
+
+---
+
+VINTF
+Vendor Interface
+
+인터페이스의 "배치와 호환 계약"
+
+어떤 HAL이 있는가
+어떤 instance가 있는가
+framework가 무엇을 요구하는가
+vendor가 무엇을 제공하는가
+
+---
+
+ABI 의 네 층
+
+(1) 플랫폼 ABI        CPU + OS 가 정한다. 아무도 못 바꾼다
+                      인자를 어느 레지스터에, 스택 정렬은 몇 바이트,
+                      int 는 몇 바이트, 반환값은 어디로
+                      문서: System V AMD64 ABI / AAPCS64 / Microsoft x64
+
+(2) 언어 ABI         컴파일러가 정한다  ← C++ 논쟁이 여기
+                     이름 맹글링, vtable 배치, 예외 처리, 템플릿 인스턴스화
+
+(3) 표준 라이브러리 ABI   구현체가 정한다
+                          std::string 이 몇 바이트이고 멤버가 어떻게 놓이나
+
+(4) 애플리케이션 ABI      내 구조체 배치, 내 인터페이스 설계
+
+---
+
+C++ 이 깨는 것들
+
+오버로드
+
+이름이 같다. 심볼 이름도 같으면 링커가 구분 못 한다
+컴파일러가 인자 타입을 이름에 인코딩한다
+
+Itanium C++ ABI (GCC, Clang):   _Z1fi        _Z1fd
+MSVC:                            ?f@@YAXH@Z   ?f@@YAXN@Z
+
+규칙이 다르니 링크 자체가 안 된다
+MSVC 로 컴파일한 .lib 를 MinGW 로 링크하면 "심볼을 찾을 수 없다" 가 뜬다.
+
+---
+
+(b) vtable 배치
+
+가상 함수 테이블 포인터가 객체의 어디에 놓이는지, 
+다중 상속일 때 서브오브젝트를 어떻게 배치하고 thunk 를 어떻게 만드는지
+
+(c) 예외 처리
+
+스택을 어떻게 되감고, 예외 객체를 어떻게 표현하고, 어디서 catch 를 찾는지
+
+---
+
+(d) 표준 라이브러리
+
+안에 포인터가 몇 개인지, SSO(짧은 문자열 최적화) 버퍼가 몇 바이트인지가 구현마다 다르다.
+
+libstdc++ (GCC)    배치 A
+libc++ (Clang/LLVM) 배치 B
+MSVC STL           배치 C
+
+---
+
+심지어 같은 libstdc++ 안에서도 깨진 적이 있다. 
+C++11 에서 std::string 이 COW 방식에서 SSO 방식으로 바뀌면서 ABI 가 깨졌고, 
+GCC 는 _GLIBCXX_USE_CXX11_ABI 라는 매크로로 두 버전을 동시에 유지하는 방법을 택했다
+
+그래서 "DLL 경계로 std::string 을 넘기지 말라" 가 C++ 실무의 격언이 됐다
+
+---
+
+C++ 이 ABI 를 지키려고 노력한다
+
+(a) Itanium C++ ABI — 사실상의 합의
+
+표준이 정해주지 않으니 업계가 따로 합의문을 만들었다. 
+이름은 Itanium 인데 그 CPU 와는 이제 상관없고, 
+비-Windows 진영 전부가 이걸 따른다.
+
+GCC   Itanium C++ ABI 준수
+Clang Itanium C++ ABI 준수
+→ 그래서 Linux/macOS 에서 GCC 로 만든 라이브러리를 Clang 이 링크할 수 있다
+
+MSVC 는 자기 ABI 를 쓴다. 그래서 Windows 진영과 나머지가 갈린다
+
+---
+
+(b) 표준 위원회가 "ABI 를 안 깨겠다" 고 정한 것
+
+std::unordered_map 이 느린 건 유명하다. 
+표준이 버킷 체이닝 구조를 사실상 강제해서 캐시 지역성이 나쁘다. 
+std::regex 도 느리기로 악명 높다.
+
+둘 다 고칠 수 있다. 그런데 안 고친다. 
+고치면 세상에 이미 컴파일돼 있는 모든 라이브러리가 깨지기 때문
+
+---
+
+Android NDK 가이드
+
+An application should not use more than one C++ runtime
+If you distribute a shared library, 
+you must either use libc++_shared 
+or ensure that libc++'s symbols are not exposed by your library
+
+Unity 의 엔진 라이브러리 둘은 C++ 표준 라이브러리를 정적으로 링크해서 감췄고, 
+CMake 로 빌드된 bridge 라이브러리 둘은 공유 버전을 쓴다.
+
+---
+
+// 호출 규약을 명시한다 — (1) 플랫폼 ABI 를 못 박음
+#if defined(_MSC_VER)
+    #define UNITY_INTERFACE_API     __stdcall
+    #define UNITY_INTERFACE_EXPORT  __declspec(dllexport)
+#else
+    #define UNITY_INTERFACE_API
+    #define UNITY_INTERFACE_EXPORT  __attribute__ ((visibility ("default")))
+#endif
+
+---
+
+Google / OEM
+   ↓
+업데이트 패키지
+   ↓  Internet / mobile network
+Android device
+   ↓
+system / vendor / boot 등 업데이트
+
+OTA
+Over-The-Air
+네트워크를 통해 시스템 업데이트를 배포하는 것
+
+---
+
+VTS
+Vendor Test Suite
+Android가 요구하는 계약을 제대로 지키는지 검사하는 테스트 모음
+
+VTS
+├─ Kernel tests
+└─ HAL tests
+
+---
+
+CTS = Compatibility Test Suite
+      Android application/framework 호환성 쪽
+
+VTS = Vendor Test Suite
+      vendor / HAL / kernel 쪽
+
+---
+
+HIDL
+Hardware Interface Definition Language
+HAL Interface Definition Language
+
+Android 8의 Project Treble과 함께 본격적으로 등장한 
+**HAL용 인터페이스 정의 언어(IDL)**
+
+현대 Android에서는
+AIDL
+
+---
+---
+---
+
+C ABI
+
+int add3(int a, int b, int c) {
+    return a + b + c;
+}
+
+0:   f3 0f 1e fa     endbr64
+4:   01 f7           add    %esi,%edi
+6:   8d 04 17        lea    (%rdi,%rdx,1),%eax
+9:   c3              ret
+
+---
+
+a 는 edi 레지스터에 들어와 있다고 가정한다
+b 는 esi 레지스터에
+c 는 edx 레지스터에
+결과는 eax 레지스터에 넣고 나간다
+
+그런데 이 약속을 누가 정했나? 
+C 언어가 아니다. CPU 와 OS 가 정했다
+
+x86-64 리눅스에는 System V AMD64 ABI 라는 문서가 있고,
+거기에 "정수 인자는 rdi, rsi, rdx, rcx, r8, r9 순서로 넣는다" 가 있다
+
+ARM64 는 AAPCS64 라는 문서가 x0~x7 을 쓰라고 정한다
+
+컴파일러는 그 문서를 따를 뿐이다
+
+---
+
+[DllImport("mylib")]
+static extern int add3(int a, int b, int c);
+
+이 한 줄을 만나면 .NET 런타임이 하는 일
+
+1. mylib.so / mylib.dll 을 로드한다
+2. 심볼 테이블에서 "add3" 이라는 이름을 찾는다     
+3. a, b, c 를 rdi, rsi, rdx 에 넣는다            
+4. 그 주소로 점프한다
+5. eax 에서 결과를 꺼낸다     
+                  
+---
+
+그 규칙들은 사실 C 의 것이 아니다
+"C ABI" 는 사실 "플랫폼 ABI 의 별명" 이다
+C 가 그 규칙과 일대일로 붙어 있어서, 
+관례적으로 그 이름을 빌려 쓰는 것뿐이다.
+
+---
+
+무엇이 사라지고 무엇이 남나
+
+멤버 접근은 오프셋 숫자가 됐고, 내부 함수는 아예 녹아 없어졌다
+
+public_api 는 지울 수가 없다. 지우면 다른 .so 가 이 함수를 찾을 방법이 없어진다
+
+[답이 나온다 → 숫자로 바뀐다]
+  지역 변수             스택 오프셋
+  구조체 멤버           구조체 시작점에서의 오프셋      ← 0x4
+  같은 파일 안 함수     상대 주소, 또는 인라인         ← internal_helper
+  정적 링크된 함수      링커가 최종 주소로 확정
+
+[아직 답이 없다 → 이름이 남는다]
+  다른 .so 가 나를 부를 때 쓸 이름
+  내가 다른 .so 를 부를 때 쓸 이름
+
+---
+
+libunity.so
+
+전체                     22,208,928 bytes      100%
+.text   기계어           16,420,760 bytes     73.9%
+.dynsym 심볼 테이블           8,496 bytes    0.038%
+.dynstr 이름 문자열           4,289 bytes    0.019%
+
+애초에 함수 대부분이 이름을 안 남기기 때문
+나머지 수만 개는 전부 내부 함수라 주소로만 존재
+
+---
+
+프로그램을 로드할 때 (딱 한 번)
+   동적 링커가 "public_api" 문자열로 심볼 테이블을 뒤진다
+   찾은 주소를 GOT(Global Offset Table)라는 표에 써 넣는다
+
+그 뒤 호출할 때 (수백만 번)
+   GOT 에서 주소를 읽어 점프
+
+---
+
+[번호의 문제]
+  라이브러리 저자가 함수를 하나 추가하면서 순서를 바꾸면?
+    → 7번이 다른 함수가 된다
+    → 조용히 엉뚱한 함수를 부른다
+
+[이름의 장점]
+  "MyFunction" 은 어디로 옮겨도 "MyFunction" 이다
+  없으면 → 로드 실패. 시끄럽게 깨진다
+
+번호는 오프셋과 같은 성질이라 순서에 의존하고, 
+이름은 그 의존에서 자유롭다.
+
+---
+---
+---
+
+틀린 것 — "export 심볼 347개"
+
+readelf --dyn-syms libunity.so | grep -c "GLOBAL DEFAULT"
+
+GLOBAL DEFAULT 는 "내보내는 심볼" 과 "가져오는 심볼" 양쪽에 다 붙는다
+내보내는 것만 세려면 Ndx 열이 UND 가 아닌 것을 걸러야
+
+347 은 libunity.so 가 libc 등에서 가져오는 것들
+전부 표준 C 라이브러리 함수다
+
+실제 export 는 7개
+
+JNI_OnLoad@@libunity
+JNI_OnUnload@@libunity
+UnitySendMessage@@libunity
+UnitySwappy_version@@libunity
+UnitySwappy_injectTracer@@libunity
+UnityInitialize@@libunity
+UnityShutdown@@libunity
+
+1,600만 바이트의 코드에 수만 개 함수가 있을 텐데 바깥에 보이는 이름이 7개뿐
