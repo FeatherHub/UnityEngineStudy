@@ -1,0 +1,1930 @@
+[Android]                              [iOS]
+┌─ 앱 프로세스 (Zygote fork) ─┐        ┌─ 앱 프로세스 (launchd 직접 실행) ─┐
+│  ART        + IL2CPP        │        │  ★ IL2CPP 하나뿐                  │
+│  관리 런타임 2개, GC 2개    │        │  관리 런타임 1개, GC 1개          │
+│      └─ JNI ─┘              │        │                                   │
+│                             │        │  Objective-C 런타임               │
+│  Java 층 (unity-classes.jar)│        │  ★ 관리 런타임 아님 (GC 없음)     │
+│                             │        │  Classes/*.mm 95개 (직접 링크)    │
+│  libunity.so (별도 .so)     │        │  UnityRuntime (정적 아카이브)     │
+└─────────────────────────────┘        └───────────────────────────────────┘
+
+---
+
+시스템 프레임워크(UIKit, Foundation, Metal …)가 
+dyld shared cache 라는 형태로 이미 메모리에 매핑돼 있고, 
+앱이 그걸 참조한다.
+
+dynamic link editor
+
+Android 는 프로세스를 복제하고, 
+iOS 는 라이브러리를 공유한다
+
+---
+
+MainApp/main.mm — 앱의 진입점
+
+int main(int argc, char* argv[])
+{
+    @autoreleasepool
+    {
+        id ufw = UnityFrameworkLoad();
+        [ufw runUIApplicationMainWithArgc: argc argv: argv];
+        return 0;
+    }
+}
+
+---
+
+Classes/main.mm — UnityFramework 클래스 구현
+
+const char* AppControllerClassName = "UnityAppController";      // ★ 문자열이다
+
+runUIApplicationMainWithArgc
+UIApplicationMain [NSString stringWithUTF8String: AppControllerClassName]
+
+---
+
+iOS terminates open sockets when an application enters background mode
+The next write to any of such socket causes SIGPIPE signal being raised
+even if the request has been done from scripting side
+
+iOS 는 백그라운드로 가면 열린 소켓을 끊는다
+그러면 다음 쓰기에서 SIGPIPE 가 뜨고 프로세스가 죽는다
+
+그걸 막아야 C# 예외로 올릴 수 있다
+
+---
+
+Info.plist
+
+<key>UIApplicationSceneManifest</key>
+<dict>
+  <key>UISceneConfigurations</key>
+  <dict>
+    <key>UIWindowSceneSessionRoleApplication</key>
+    <array>
+      <dict>
+        <key>UISceneDelegateClassName</key>
+        <string>UnityScene</string>          
+      </dict>
+    </array>
+  </dict>
+</dict>
+
+{
+  "UISceneConfigurations": {
+    "UIWindowSceneSessionRoleApplication": [
+      {
+        "UISceneDelegateClassName": "UnityScene"
+      }
+    ]
+  }
+}
+
+---
+
+UnityScene.mm 이 Unity 를 초기화
+
+sceneWillEnterForeground
+
+[appController initUnityWithScene: windowScene]
+
+---
+
+launchd
+  └─ main()                          MainApp/main.mm
+       └─ [bundle load]              UnityFramework.framework 로드
+            └─ runUIApplicationMainWithArgc
+                 ├─ UnityInitRuntime         ★ IL2CPP 런타임 초기화
+                 └─ UIApplicationMain(…, @"UnityAppController")
+                      └─ UnityAppController (UIApplicationDelegate)
+                           └─ UnityScene (UISceneDelegate)
+                                └─ sceneWillEnterForeground
+                                     └─ initUnityWithScene
+                                          ├─ [DisplayManager Initialize]
+                                          ├─ UIWindow / UnityView 생성
+                                          └─ startUnity
+                                          
+---
+
+Android 는 Unity 가 자기 루프를 돌린다.
+
+// ── Android: UGAEntry.cpp / MainLoop ──
+
+void MainLoop(struct android_app* app)
+{
+    Unity::SetThisThreadAsMainThread();
+    auto instance = Unity::UnityApplication::CreateInstance(app);
+    instance->Loop();          // Unity 가 루프를 소유
+}
+
+---
+
+iOS 는 루프가 없다.
+
+// ── iOS: UnityAppController+Rendering.mm ──
+
+- (void)createCADisplayLink
+- (void)repaintDisplayLink
+
+extern "C" void UnityRepaint()
+{
+    @autoreleasepool
+    {
+        Profiler_FrameStart();
+        UnityPlayerLoopWithBackbuffer(…);    // 프레임 "한 번"
+        Profiler_FrameEnd();
+    }
+}
+
+CADisplayLink 가 화면 주사율에 맞춰 콜백을 보내고,
+그 콜백 한 번이 게임 프레임 한 번
+
+Unity 가 while 을 돌리는 게 아니라 
+OS 의 run loop 에 얹혀 있다
+
+---
+
+Android:  UI 스레드(Java)  +  ★ GameThread(Unity 루프)
+iOS:      메인 스레드 하나에서 UIKit 과 Unity 가 번갈아 돈다
+
+Unity 의 "메인 스레드" 가 iOS 에서는 문자 그대로 UI 메인 스레드
+
+---
+
+iOS:   Unity 코드가 오래 걸리면 → UI 도 같이 멈춘다. 터치도 안 먹는다
+       반대로 UIKit 작업을 C# 에서 바로 해도 된다 (같은 스레드니까)
+
+Android: Unity 가 멈춰도 Java UI 는 살아 있다
+      대신 Java 를 부르려면 runOnUiThread 로 넘겨야 했다
+
+---
+
+ART                          Objective-C 런타임
+────────────────────────     ─────────────────────────
+DEX 바이트코드를 실행        기계어를 그대로 실행
+GC 가 객체를 회수            GC 없음. ARC = 컴파일 시점에 retain/release 삽입
+객체가 이동할 수 있다        객체 주소가 고정
+타입 정보를 런타임이 소유    클래스 정보가 바이너리 안에 있음
+
+---
+
+메시지 디스패치(objc_msgSend)와 
+이름 기반 클래스 조회가 있어서 동적이지만, 관리 힙이 없다.
+
+---
+
+C# 에서 ObjC 를 부르는 것도 훨씬 단순
+JNI 같은 별도 다리가 필요 없고, 
+[DllImport("__Internal")] 로 그냥 C 함수를 부르면 된다. 
+C ABI 위에 바로 얹힌다
+
+---
+
+ARM's Execute Never (XN) feature, which marks memory pages as nonexecutable
+
+Memory pages marked as both writable and executable can be used only by apps under tightly controlled conditions
+
+Safari uses this functionality for its JavaScript just-in-time (JIT) compiler
+
+---
+
+All third-party apps are sandboxed
+Each app has a unique home directory for its files, 
+which is randomly assigned when the app is installed
+
+Android:  /storage/emulated/0/Android/data/com.example.game/files
+          패키지 이름 기반. 예측 가능하고 안정적
+
+iOS:      /var/mobile/Containers/Data/Application/<무작위 UUID>/Documents
+          재설치하면 UUID 가 바뀐다
+
+---
+
+Application.persistentDataPath 를 저장해두면 안 된다. 
+다음 실행에 그 경로가 유효하지 않을 수 있다. 
+매번 물어봐야 한다.
+
+---
+
+Android:  Java Activity → C++ bridge(libgame.so) → libmain.so → libunity.so
+JNI 경유
+
+iOS:      main() → framework load → UIApplicationMain → AppController → Scene
+          전부 같은 언어 계열(C/C++/ObjC). 다리가 없다
+
+---
+
+Android:  Unity 가 GameThread 에서 while 루프를 소유
+
+iOS:      CADisplayLink 가 메인 스레드로 프레임마다 콜백. Unity 루프 없음
+Core Animation
+
+---
+
+Xcode                    최종 컴파일·링크·서명을 하는 주체
+Provisioning Profile     "이 인증서로 이 앱을 이 기기에 설치해도 좋다" 는 증서
+Certificate              개발자 신원
+Entitlements             앱이 요청하는 특권 (푸시, iCloud, HealthKit …)
+Bundle ID                앱 식별자. ★ 한 번 정하면 바꾸기 어렵다
+App Store Connect        업로드·심사·배포 창구
+TestFlight               베타 배포
+
+---
+
+런타임
+
+UIApplicationDelegate    앱 수준 생명주기
+UISceneDelegate          창 수준 생명주기 (iOS 13+). ★ Unity 는 UnityScene 을 씀
+CADisplayLink            화면 주사율 콜백. ★ Unity 프레임의 원천
+Metal                    유일한 그래픽스 API. Info.plist 에 필수로 선언됨
+ARC                      컴파일 시점 참조 카운팅. GC 아님
+dyld                     동적 링커. Frameworks/ 를 로드
+
+---
+
+심사·제출
+
+Privacy Manifest         PrivacyInfo.xcprivacy
+Required Reason API      특정 API 사용 이유를 신고해야 함
+                         → Libraries 에 AppleRequiredReasonCSharpAPIs.txt
+
+---
+
+UnityFramework/ 폴더에 있던 파일들
+
+PrivacyInfo.xcprivacy
+ApplePrivacyManifestsMerge.txt
+AppleRequiredReasonCSharpAPIs.txt
+
+Unity 가 C# API 사용을 스캔해서 privacy manifest 를 만들어준다
+
+---
+
+관리 런타임이 주는 것 
+
+같은 프로세스 안에서 복구 가능
+
+// C++: null 역참조
+obj->method();          → SIGSEGV → 프로세스 즉사. 아무것도 못 함
+
+// C#/Java: 같은 실수
+obj.Method();           → NullReferenceException → catch 할 수 있다
+                                                  로그 남기고 계속 갈 수 있다
+
+Unity Editor 에서 서드파티 확장이 null 참조를 내도 Console 에 빨간 줄 하나만 남는 것
+프로세스 경계가 없는 곳(같은 프로세스 안)에서 의미가 있다
+
+---
+
+char buf[64];
+strcpy(buf, attacker_controlled_input);    // 오버플로
+스택의 리턴 주소를 덮어써서 공격자가 원하는 코드를 실행
+
+byte[] buf = new byte[64];
+buf[100] = x;    → ArrayIndexOutOfBoundsException. 그 이상 아무 일도 안 일어난다
+
+---
+
+"관리 런타임이 필요한 곳" 은 프로세스가 격리해주지 못하는 곳
+한 프로세스 안에 여러 주체가 섞이는 곳
+
+---
+
+iOS suspends your app shortly after the user has moved it to the background, 
+and this suspension prevents the process from running any code
+
+While suspended, an app remains in memory but does not execute any code
+
+By default, backgrounded apps are suspended
+They don't get CPU time
+This protects battery life, preserves privacy, and frees up resources for apps in the foreground
+
+---
+
+상대방이 데이터를 보낸다
+   → 커널이 수신 버퍼에 쌓는다
+   → 앱은 멈춰 있어서 읽지 않는다
+   → 버퍼가 찬다
+   → TCP 윈도가 0 이 된다. 상대는 타임아웃 나거나 끊는다
+
+동시에:
+   → 소켓을 유지하려면 셀룰러/Wi-Fi 라디오를 깨워둬야 한다  → ★ 배터리
+   → 커널 자원(파일 디스크립터, 버퍼)을 계속 점유          → ★ 자원
+
+어차피 못 읽는 연결을 붙잡고 배터리와 자원만 쓰는 셈
+그래서 시스템이 회수한다
+
+---
+
+std::signal(SIGPIPE, SIG_IGN);
+
+SIG_IGN 으로 무시하면 write() 가 EPIPE 를 리턴하고, 그걸 C# 예외로 올릴 수 있다
+
+---
+
+UIApplication      UIKit.        iOS, iPadOS, tvOS
+NSApplication      AppKit.       macOS
+WKApplication      WatchKit.     watchOS
+App (protocol)     SwiftUI.      플랫폼 공용 (Swift 전용)
+
+UnityAppController 가 상속하는 게 UIApplicationDelegate
+
+---
+
+[객체 메서드]
+
+[self startUnity];                        // self.startUnity()
+[bundle load];                            // bundle.load()
+
+---
+
+[객체 메서드:인자]
+[객체 메서드:다른이름:인자]
+
+[_displayLink addToRunLoop: [NSRunLoop currentRunLoop] forMode: NSRunLoopCommonModes]
+_displayLink.addToRunLoop_forMode(NSRunLoop::currentRunLoop(), NSRunLoopCommonModes)
+
+메서드의 진짜 이름은 addToRunLoop:forMode: 다. 콜론까지 포함해서 하나의 이름
+그래서 오버로드가 없다
+
+---
+
+- (void)startUnity;              // ★ 인스턴스 메서드
++ (UnityFramework*)getInstance;  // ★ 클래스(static) 메서드
+
+---
+
+Mach-O
+Mach Object file format
+macOS의 native executable format
+코드와 데이터를 segment/section으로 구성
+
+---
+
+Mach-O
+├─ Header
+│   ├─ CPU architecture: ARM64
+│
+├─ Load Commands
+│   ├─ 어떤 dylib가 필요한가
+│   ├─ segment를 어디에 매핑할까
+│   └─ entry / dyld 정보
+│
+├─ __TEXT
+└─ __DATA
+
+__TEXT에는 executable code와 constant data, 
+__DATA에는 writable data
+
+---
+
+
+source code
+   ↓ compiler
+object file
+   ↓ linker
+executable
+
+---
+
+deploy_arm64(Apple Silicon)
+deploy_x86_64(Intel Mac)
+
+---
+
+C# 소스 -> Roslyn -> Assembly-CSharp.dll (IL) -> stripping (Unity Linker) -> IL2CPP => il2cppOutput/*.cpp
+에셋 직렬화 => Data/
+Trampoline 소스 복사 => Classess/, MainApp/
+global-metadata.dat 생성
+Xcode 프로젝트 파일 생성
+
+폴더 통째로 Mac 으로 전송
+
+---
+
+Mac (Xcode)
+
+il2cpp --compile-cpp ──▶ libGameAssembly.a
+clang: Classes/*.mm ──▶ 오브젝트
+링커: 전부 합쳐 ──▶ UnityFramework.framework
+──▶ Universal2D.app
+──▶ 코드 서명
+
+---
+
+Unity-iPhone        com.apple.product-type.application       → Universal2D.app
+UnityFramework      com.apple.product-type.framework         → UnityFramework.framework
+GameAssembly        com.apple.product-type.library.static    → libGameAssembly.a
+Unity-iPhone Tests  com.apple.product-type.bundle.unit-test
+
+---
+
+Unity-iPhone  ──호출──▶  UnityFramework  ──호출──▶  GameAssembly
+   (앱)                    (프레임워크)              (정적 라이브러리)
+
+빌드 순서는 반대로
+
+1. GameAssembly     내 C# → libGameAssembly.a
+2. UnityFramework   위 결과 + 엔진 + Classes → UnityFramework.framework
+3. Unity-iPhone     프레임워크를 embed 하고 앱을 만든다
+
+---
+
+GameAssembly      ★ 내 C# + 패키지 C# + BCL(mscorlib) + IL2CPP 런타임
+UnityFramework    ★ 엔진 + 위의 GameAssembly + ObjC 트램펄린 + Burst
+Unity-iPhone      ★ main.mm 하나
+
+---
+
+생성 C++    853 MB   (Android)
+     ↓ clang 컴파일 + 링크 + 최적화
+libil2cpp.so  93 MB   ★ 최종 바이너리
+
+주석·공백·중복 선언이 사라지고, 안 쓰는 코드가 잘리고, 인라인이 일어난다
+
+Managed Stripping Level 을 올리면 생성 단계부터 줄어든다
+ProjectSettings.asset 은 managedStrippingLevel: {} 이라 기본값
+
+High 로 올리면 안 쓰는 패키지 코드가 IL 단계에서 잘려나가서 C++ 생성량 자체가 크게 준다
+
+---
+
+Roslyn
+Microsoft 가 만든 .NET Compiler Platform
+
+컴파일러이자 그 컴파일러를 라이브러리로 쓸 수 있게 만든 플랫폼
+
+.NET 생태계
+ └─ .NET Compiler Platform ("Roslyn")   이게 전체 이름
+      ├─ C# 컴파일러         csc
+      ├─ VB 컴파일러         vbc
+      └─ 컴파일러 API      Microsoft.CodeAnalysis.*
+
+분석기(analyzer), 소스 생성기(source generator),
+IDE 의 자동완성·리팩터링이 전부 이 위에 선다
+
+---
+
+Editor/Data/DotNetSdkRoslyn/
+    csc.dll                             ★ C# 컴파일러
+    Microsoft.CodeAnalysis.CSharp.dll   ★ 컴파일러 본체 라이브러리
+    Microsoft.CodeAnalysis.dll
+    VBCSCompiler.dll                    ★ 컴파일러 서버 (상주 프로세스)
+
+컴파일러를 프로세스로 띄워두고 재사용하는 서버
+매번 컴파일러를 새로 시작하면 JIT 워밍업이 반복되니, 상주시켜서 반복 컴파일을 빠르게 한다
+
+---
+
+내 .cs 파일
+   │ ★ Roslyn (csc)                     
+   ▼
+Library/ScriptAssemblies/Assembly-CSharp.dll  (IL)
+   │
+   ├─ Editor: Mono 가 JIT
+   └─ Player: IL2CPP 가 C++ 로 변환 → clang 이 기계어로
+
+---
+
+Windows (Mono)
+   UnityPlayer.dll        엔진        ← ★ 별도 파일
+   Data/Managed/*.dll     게임코드     ← ★ 별도 파일
+   → 런타임에 Mono 가 둘을 붙인다
+
+Android (IL2CPP)
+   libunity.so    22 MB   엔진        ← ★ 별도 .so
+   libil2cpp.so   93 MB   게임코드     ← ★ 별도 .so
+   → 런타임에 dlopen 으로 붙인다
+
+iOS (IL2CPP)
+   UnityFramework.framework          ← ★ 하나로 합쳐짐
+
+---
+
+il2cppOutput
+
+UnityICallRegistration.cpp     585 KB, ★ 9,147줄
+UnityClassRegistration.cpp      19 KB
+cpp/                           914 MB  ← 생성된 C++ 본체
+data/                           13 MB  ← metadata 재료
+
+---
+
+// ── UnityClassRegistration.cpp ──
+extern "C" void RegisterStaticallyLinkedModulesGranular()
+    void RegisterModule_SharedInternals();    RegisterModule_SharedInternals();
+    void RegisterModule_Scripting();          RegisterModule_Scripting();
+    void RegisterModule_Core();               RegisterModule_Core();
+    ...
+
+여기 등록된 모듈만 링커가 남기고 나머지는 버린다
+
+---
+
+IL2CPP 는 두 부분
+
+(a) 변환기 (ahead-of-time compiler)   IL → C++
+(b) 런타임 라이브러리 (libil2cpp)    GC, 타입 시스템, metadata, 예외, 스레드
+
+The runtime library provides services and abstractions like a garbage collector,
+platform-independent access to threads and files, 
+and implementations of internal calls
+
+관리 런타임 으로서의 IL2CPP 
+
+---
+
+Mono AOT              ★ IL2CPP 이전에 Unity iOS 가 쓰던 것
+                       Mono 런타임 + 미리 컴파일된 코드
+                       Xamarin.iOS 도 이걸 썼다
+
+.NET NativeAOT        ★ Microsoft 의 현재 주류 (.NET 7+)
+                       IL → 네이티브를 ★ 직접. C++ 안 거침
+                       JIT 도 인터프리터도 없는 단일 바이너리
+
+.NET Native           UWP 용. 폐기됨. NativeAOT 의 전신 중 하나
+CoreRT                NativeAOT 의 직전 이름
+
+Mono AOT (현재)        모바일·WASM 쪽에서 계속 쓰인다
+
+---
+
+IL2CPP 만의 특이점 — C++ 을 경유
+
+By converting IL code to C++, Unity has been able to obtain 
+a nice balance between portable and performant code, 
+
+maintaining many of the nice developer-friendly features of managed code 
+while getting the benefits of quality machine code that the C++ compiler provides for various platforms
+
+---
+
+IL → 기계어 직접                      IL → C++ → 기계어
+──────────────────────────            ──────────────────────────
+★ 플랫폼마다 코드 생성기를 만들어야   ★ 그 플랫폼의 C++ 컴파일러를 그냥 쓴다
+   ARM64, x86-64, PowerPC...            clang, MSVC, 콘솔 전용 컴파일러
+새 CPU 나오면 백엔드 추가 필요        ★ C++ 컴파일러만 있으면 즉시 지원
+최적화도 직접 구현                    ★ 30년 축적된 컴파일러 최적화를 공짜로
+
+---
+
+PlayStation, Xbox, Switch 는 각자 전용 컴파일러가 있고 SDK 가 NDA
+Unity 가 그 CPU 용 코드 생성기를 만들 수 없다. 
+C++ 을 뱉으면 벤더 컴파일러가 알아서 한다.
+
+il2cpp-config.h
+
+IL2CPP_TARGET_PS4    IL2CPP_TARGET_PS5    IL2CPP_TARGET_SWITCH
+IL2CPP_TARGET_SWITCH2    IL2CPP_TARGET_N3DS    IL2CPP_TARGET_QNX 
+
+---
+
+Windows (Mono)
+
+UnityPlayer.dll        기계어
+Data/Managed/*.dll     IL. 기계어가 아니다
+
+IL 어셈블리는 "링크" 라는 개념이 없다. 
+Mono 가 실행 중에 읽어서 JIT 한다
+
+---
+
+Android 2008   ARMv5, ARMv7, x86, MIPS 가 공존
+               → ★ CPU 중립 바이트코드가 절실했다
+
+iOS            Apple 이 칩을 만든다. ARM 계열 하나
+               → ★ 중립 표현이 필요 없다
+
+
+---
+
+You can reduce your app's launch time by limiting the number of 3rd party frameworks you embed
+Each additional third-party framework that your app loads adds to the launch time
+Although dyld caches a lot of this work in a launch closure when the user installs the app
+
+---
+
+WWDC16   Optimizing App Startup Time
+WWDC17   App Startup Time: Past, Present, and Future
+WWDC19   Optimizing App Launch
+WWDC22   ★ Link fast: Improve build and launch times
+WWDC23   ★ Meet mergeable libraries
+
+---
+
+In Xcode 15 or later, you can use mergeable dynamic libraries 
+to get app launch times similar to static linking in release builds, 
+without losing dynamically linked build times in debug builds
+
+---
+
+앱이 일정 시간 안에 첫 화면을 못 띄우면 워치독이 프로세스를 죽인다. 
+Unity 게임은 엔진 초기화만도 무거운데, 
+거기에 dyld 비용까지 얹으면 위험해진다
+
+---
+
+.NET 의 표준 라이브러리
+BCL
+mscorlib.dll (4.4 MB)
+   TypeDef      3,023    정의된 타입
+   MethodDef   27,495    메서드
+   Field       15,986
+   ExportedType     0
+   AssemblyRef      0    ← 아무것도 참조하지 않는다
+
+다른 어떤 어셈블리도 참조하지 않는다. 
+어셈블리 의존 그래프의 뿌리
+
+
+---
+
+.NET 의 type forwarding 기능
+
+내 코드:  using UnityEngine;  →  UnityEngine.dll 을 참조
+컴파일러: "GameObject 를 UnityEngine.dll 에서 찾아라"
+UnityEngine.dll: "★ 그건 UnityEngine.CoreModule.dll 에 있다" 라고 전달
+
+---
+
+C++ 세계 — 여기가 Unity
+libunity.so 22 MB / UnityPlayer.dll 35 MB
+
+---
+
+정적 링크의 규칙:
+   링커는 참조된 심볼이 든 .o 만 아카이브에서 꺼낸다
+   나머지는 최종 바이너리에 아예 안 들어간다
+
+1,976개 오브젝트 단위 데드 코드 제거
+
+While dynamic libraries have little impact on build time but noticeable launch time consequences, 
+static libraries provide minimal launch time impact but are costly on build time.
+
+---
+
+Xcode 15
+
+Mergeable libraries combine the best parts of static and dynamic libraries
+
+you can use mergeable dynamic libraries to get app launch times similar to static linking in release builds
+without losing dynamically linked build times in debug builds
+
+---
+
+libunityruntime.a   108.1 MB   ★ 멤버 1,628개   Modules_* 271개
+UnityRuntime (iOS)  221.6 MB   ★ 멤버 1,976개   Modules_* 270개
+
+
+Unity 는 양쪽에 똑같이 촘촘한 정적 아카이브를 준다
+
+Android:  libunityruntime.a  ──재링크──▶  libunity.so (22 MB, 동적)  ──dlopen──▶ 실행
+iOS:      UnityRuntime.a     ──────링크──────▶  UnityFramework 안으로  ──▶ 실행
+
+Android 도 데드 코드 제거를 한다
+
+---
+
+internal static bool IsPersistent(Object obj)
+{
+    if ((object)obj == null) ThrowHelper.ThrowArgumentNullException(obj, nameof(obj));
+
+    IntPtr num = MarshalledUnityObject.MarshalNotNull<Object>(obj);   // 필드 하나 읽기
+    if (num == IntPtr.Zero)   ThrowHelper.ThrowArgumentNullException(obj, nameof(obj));
+
+    return IsPersistent_Injected(num);                                 
+}
+
+[MethodImpl(MethodImplOptions.InternalCall)]
+private static extern bool IsPersistent_Injected(IntPtr obj);
+
+---
+
+221.6 MB (iOS .a)     ★ 링크 전. 모든 .o + 디버그 정보 + 중복 심볼
+108.1 MB (Android .a) ★ 같은 성격. iOS 쪽이 더 큰 건 디버그 정보량 차이로 추정
+ 35.2 MB (Windows dll) ★ 이미 링크·최적화됨
+ 28.6 MB (Android .so) ★ 이미 링크됨
+
+---
+
+UnityFramework.framework
+   ├─ UnityRuntime.a        엔진        221.6 MB (1,976 .o)
+   ├─ libGameAssembly.a     내 C# + BCL + IL2CPP 런타임
+   ├─ lib_burst_generated.a Burst
+   ├─ baselib.a             플랫폼 추상화
+   └─ Classes/*.mm          ObjC 트램펄린 95개
+
+---
+
+나눈다면
+
+UnityEngine.framework      엔진. ★ Unity 가 프리빌드해서 배포
+UnityFramework.framework   트램펄린 + 내 게임 코드
+
+Android 와 같은 모양이 된다
+libunity.so(프리빌드) + libil2cpp.so(내 코드)
+
+---
+
+libunity.so             22.2 MB
+libil2cpp.so            93.3 MB
+lib_burst_generated.so   1.0 MB
+   ↓
+libgame_everything.so   하나로
+
+libmain.so (6.7 KB)     ★ 남겨야 한다 — JNI_OnLoad 진입점
+libc++_shared.so        시스템 공유라 그대로
+
+---
+
+ABI 문제
+
+iOS
+
+"il2cpp 를 빌드한 툴체인" 과 "앱을 빌드한 툴체인" 이 어긋나면 문제가 생긴다
+
+자동 탐색을 끄고 Xcode 가 알려준 경로를 강제한다
+
+ARGS+=(
+    --tool-chain-path="$UNITY_TOOLCHAIN_DIR"
+    --sysroot-path="$SDKROOT"
+)
+
+---
+
+Android
+
+compile.rsp:
+   -std=c++17
+   -DENABLE_PROFILER=0
+   -DUNITY_RELEASE=1
+   -DDEBUGMODE=0
+   -DENABLE_ASSERTIONS=0
+
+Unity 가 자기 플래그를 파일로 동봉해서 내 컴파일도 똑같이 하게 만든다
+
+---
+
+ELF/Linux/Android 동적 링크
+
+PLT = Procedure Linkage Table
+GOT = Global Offset Table
+
+런타임에 실제 주소가 정해지는 함수·데이터를 연결하기 위한 테이블
+
+---
+
+내 코드
+  |
+  | 외부 함수 호출
+  v
+ PLT/GOT
+  |
+  v
+libfoo.so 안의 실제 함수 주소
+
+---
+
+call printf@PLT
+        |
+        v
+   PLT entry
+        |
+        v
+   GOT[printf]
+        |
+        v
+실제 printf 주소
+
+---
+
+GOT, Global Offset Table
+주소들을 저장하는 표
+
++----------------------+
+| globalVar → 0x....   |
+| printf    → 0x....   |
+| malloc    → 0x....   |
++----------------------+
+
+런타임 링커가 relocation을 처리하면서 
+실제 absolute address를 GOT에 채웁니다
+
+---
+
+ELF
+├─ .plt   Procedure Linkage Table
+├─ .got   Global Offset Table
+├─ .dynsym
+├─ .rela.*
+└─ .text
+
+---
+
+아카이브 멤버 선택 — 링커의 기본 동작
+
+링커가 .a 를 만나면
+   "지금 미해결 심볼이 있는데, 이 아카이브의 어느 멤버가 그걸 정의하나?"
+   → ★ 그 .o 만 꺼낸다. 나머지는 건드리지 않는다
+
+옵션이 아니라 정적 아카이브의 정의 자체
+그래서 UnityRuntime 의 1,976개 멤버 중 PhysX 57개를 안 쓰면 통째로 안 들어온다.
+
+.so/.dylib 에는 이 단계가 없다. 이미 링크된 완제품이라 통째로 로드된다.
+
+---
+
+"멤버 선택" 은 .o 단위
+"데드 스트립" 은 함수·데이터 단위다
+
+---
+
+managed code stripping — Unity 용어, IL 단계
+
+내 C# + 패키지 C#  →  ★ Unity linker 가 안 쓰는 IL 을 제거  →  IL2CPP 변환
+
+---
+
+engine code stripping — Unity 용어, 모듈 단계
+
+UnityClassRegistration.cpp 가 생성된다
+   RegisterModule_Core();  RegisterModule_Animation();  …
+   → ★ 여기 등록된 모듈만 링크에 참여
+
+---
+
+층            이름                      단위           수단
+────────────────────────────────────────────────────────────────
+IL            managed code stripping   타입·메서드     Unity linker (Cecil)
+모듈          engine code stripping    엔진 모듈       UnityClassRegistration.cpp
+아카이브      멤버 선택                .o 파일         ★ 링커의 기본 동작
+섹션          데드 스트립              함수·데이터     --gc-sections / -dead_strip
+
+---
+
+Android 
+   ① libunityruntime.a (108 MB, 1,628 .o) ──링크──▶ libunity.so 20.5 MB
+   ② 생성 C++ ──컴파일──▶ .o ──링크──▶ libil2cpp.so 93 MB
+
+---
+
+iOS
+   ① 생성 C++ ──컴파일──▶ libGameAssembly.a
+   ② UnityRuntime.a (221 MB, 1,976 .o) + libGameAssembly.a + Classes .o ──링크──▶ UnityFramework
+
+---
+
+.a    static library / archive
+      ★ 링크 시점에만 존재. 실행 파일에 흡수됨
+      ★ 런타임에는 이 파일이 필요 없다. 배포 안 한다
+
+.so   shared object = ★ 동적 라이브러리
+      ★ 런타임에 dlopen / 동적 링커가 로드
+      ★ 배포물에 들어간다
+
+.dylib  Apple 판 .so
+.dll    Windows 판 .so
+
+---
+
+.dynsym
+→ Dynamic Symbol Table
+
+.rela
+  rel = relocation
+  a   = explicit Addend를 가진 형식
+
+→ Relocation entries with Addend
+
+---
+
+.dynsym  = "외부에서 찾아야 할 이름들의 명부"
+.rela.*  = "주소가 정해지면 여기 좀 고쳐주세요" 목록
+
+---
+
+int main()
+{
+    puts("Hello");
+}
+
+이고 puts가 libc.so에 있다
+
+ELF 안에는
+
+[17] puts
+     type = FUNC
+     section = UNDEF
+
+UNDEF는 현재 ELF가 puts의 구현을 가지고 있지 않고, 
+동적 링크 과정에서 해당 symbol을 찾아야 한다는 의미
+
+---
+
+.rela.plt
+
+offset       symbol    type
+--------------------------------
+GOT[puts]    puts      JUMP_SLOT
+
+
+runtime linker에게
+
+"puts의 실제 주소를 찾은 다음
+ GOT의 puts 슬롯을 그 주소로 고쳐라"
+
+---
+
+설치본에만 존재:
+   libunityruntime.a   108 MB    → libunity.so 를 만드는 재료
+
+.a 는 재료이고 .so 는 제품
+
+---
+
+
+.o   컴파일된 오브젝트 파일 하나. 기계어 + 심볼 테이블 + 재배치 정보
+.a   .o 여러 개를 묶은 아카이브. 압축도 링크도 안 함. 그냥 묶음
+
+UnityRuntime (iOS)      1,976개 .o
+libunityruntime.a (And)  1,628개 .o
+
+---
+
+Android
+
+Compile UnityClassRegistration.cpp  →  UnityClassRegistration.o
+Compile UnityICallRegistration.cpp  →  UnityICallRegistration.o
+
+libunity
+     입력: UnityClassRegistration.o          ★ 게임이 쓰는 엔진 모듈 목록
+           UnityICallRegistration.o          ★ 게임이 쓰는 icall 목록
+           libunityruntime.a                 ★ 엔진 재료 (108 MB, 1,628 .o)
+           libunityexternal.a                서드파티
+
+     출력: libunity.so
+
+---
+
+재료:  libunityruntime.a
+제품:  libunity.so
+
+---
+
+Unity 가 Windows 에서 iOS 를 링크할 수 없다
+      → 링크 기회가 Xcode 의 앱 링크 한 번뿐
+      → 거기서 하면 합쳐진다. 선택의 여지가 없다
+
+---
+
+Clang을 C 계열 언어의 front end
+C/C++/Objective-C를 이해하는 front-end
+
+C / C++ / Objective-C / Objective-C++
+             │
+             ▼
+           Clang
+             │
+             ▼
+          LLVM IR
+             │
+             ▼
+           LLVM optimization passes
+             │
+             ▼
+        LLVM backend
+             │
+     ARM64 / x86-64 ...
+             ▼
+            .o
+             │
+             ▼
+          linker
+             │
+             ▼
+   executable / .so / Mach-O
+
+---
+
+UnityAppController.mm
+        │
+        ▼
+      Clang
+        │
+        ▼
+      LLVM IR
+        │
+        ▼
+ LLVM optimizer/backend
+        │
+        ▼
+    ARM64 .o
+
+---
+
+전체 toolchain을 지휘
+
+clang++ 명령
+   │
+   ├─ Clang frontend 호출
+   ├─ LLVM code generation 사용
+   ├─ assembler 단계 조직
+   └─ linker 호출
+
+---
+---
+---
+
+iOS
+
+Q. 엔진 .a 를 스트리핑한 후 Xcode 프로젝트에 넣나?
+A. 아니다. 원본 그대로 넣는다
+   대신 "무엇을 남길지 적힌 소스" 를 같이 넣는다
+ 
+Mac 에서 컴파일되고 링크에 참여
+
+---
+
+Xcode 의 "타깃"
+
+프로젝트는 타깃 여러 개를 담는 그릇
+타깃 = 프로젝트 안에서 만들어지는 산출물 하나
+
+Unity-iPhone.xcodeproj          ★ 프로젝트 (그릇)
+├── Unity-iPhone               타깃 → Universal2D.app
+├── UnityFramework             타깃 → UnityFramework.framework
+├── GameAssembly               타깃 → libGameAssembly.a
+└── Unity-iPhone Tests         타깃 → *.xctest
+
+---
+
+각 타깃이 갖는 것.
+
+productType     무엇을 만드나
+                com.apple.product-type.application
+                com.apple.product-type.framework
+                com.apple.product-type.library.static
+
+buildPhases     어떤 순서로 만드나
+                Sources → Frameworks(링크) → Resources → ShellScript …
+
+dependencies    무엇을 먼저 만들어야 하나
+
+buildSettings   어떤 설정으로
+                ARCHS, CODE_SIGN_IDENTITY, OTHER_LDFLAGS …
+
+---
+
+Packages/manifest.json
+"2D 템플릿" 패키지 40개 이상을 기본으로 물고 온다
+
+① manifest.json 에서 안 쓰는 패키지 제거
+   ★ Visual Scripting, ProBuilder, Netcode, Purchasing 을 빼면 크게 준다
+
+② Managed Stripping Level 을 High 로
+   ★ IL 단계에서 잘라내니 C++ 생성량 자체가 준다
+
+---
+
+il2cppOutput 에
+
+① BCL                mscorlib.cpp, System.cpp, System.Xml.cpp …
+② 엔진 C# 층         UnityEngine.CoreModule.cpp, UnityEngine.AnimationModule.cpp …
+③ 패키지 C#          Unity.InputSystem.cpp, Unity.RenderPipelines.*.cpp …
+④ 내 스크립트      Assembly-CSharp.cpp
+⑤ 제네릭 인스턴스     Generics__*.cpp
+⑥ 테이블·등록        Il2Cpp*.c, Unity*Registration.cpp
+
+엔진의 C++ 부분은 여기 없다. 
+그건 이미 컴파일된 UnityRuntime / libunityruntime.a
+
+---
+
+Library/Bee/artifacts/Android/il2cppOutput/   ★ 별도 폴더
+Library/Bee/artifacts/iOS/il2cppOutput/       ★ 별도 폴더
+
+플랫폼별 #define        UNITY_IOS / UNITY_ANDROID 로 갈리는 C# 코드
+
+---
+
+UnityRuntime 의 확장자 — .a
+매직 넘버: 21 3c 61 72 63 68 3e 0a  =  "!<arch>\n"
+
+확장자가 없는 건 Apple 의 framework 규약 때문
+framework 안의 바이너리는 확장자를 안 붙이는 게 규칙
+
+UnityRuntime.framework/
+├── Info.plist
+│     CFBundleExecutable = "UnityRuntime"   여기 적힌 이름과
+├── UnityRuntime                            파일 이름이 일치해야 한다
+└── …
+
+---
+
+[트램펄린 — Classes/*.mm]
+   스레드를 안 만든다
+   CADisplayLink 콜백을 받아서 UnityRepaint() 를 부를 뿐
+
+[엔진 — UnityRuntime]
+   스레드를 만든다
+   렌더 스레드, Job 워커, 로딩 스레드, 오디오 스레드
+
+---
+
+Android:  게임 로직이 ★ GameThread (UI 스레드와 별개)
+iOS:      게임 로직이 ★ 메인 스레드 (UIKit 과 공유)
+양쪽 다:  ★ 렌더 스레드와 Job 워커는 따로 있다
+
+---
+
+[벽시계 기준]
+   전체 빌드              459.3초
+     ├─ C++ 컴파일        ★ 대부분 (병렬로 압축된 1,762초)
+     ├─ IL → C++ 변환         16.9초
+     ├─ managed stripping      6.8초
+     └─ 링크                   2.1초
+
+변환 17초, 링크 2초, 나머지 거의 전부가 C++ 컴파일
+
+---
+---
+---
+---
+---
+---
+---
+---
+---
+---
+---
+---
+
+Windows 빌드의 PE import 테이블
+
+Universal2D.exe            667,648 바이트
+  import: KERNEL32.dll, UnityPlayer.dll
+  UnityPlayer.dll 에서 호출하는 심볼: UnityMain2
+
+UnityPlayer.dll         36,922,288 바이트
+  export: UnityMain, UnityMain2
+
+---
+
+PlaybackEngines/.../Source/WindowsPlayer/Main.cpp
+
+int WINAPI wWinMain
+  return UnityMain2
+
+---
+
+진입점 (껍데기)
+
+Editor   │ Unity.exe   282 KB
+Windows  │ *.exe       667 KB
+
+엔진 본체
+
+Editor
+Unity.dll        86.5 MB
+
+Windows
+UnityPlayer.dll  36.9 MB
+
+---
+
+진입점 (껍데기)
+
+Android  │ libmain.so  6.7 KB
+iOS      │ 앱 실행파일 수십 KB
+
+엔진 본체
+
+Android
+libunity.so      22.2 MB
+
+iOS
+UnityFramework   (통합)
+
+---
+
+libmain.so 
+
+export 심볼이 하나, JNI_OnLoad.
+
+NEEDED 목록에 liblog / libm / libdl / lib
+
+libunity.so 가 없다
+대신 dlopen, dlsym, dlclose, dlerror 를 import
+
+---
+
+문자열 테이블
+
+libunity.so
+libil2cpp.so
+com/unity3d/player/NativeLoader
+ 
+---
+
+(A) 진입점
+
+OS 가 형식을 정한 얇은 껍데기. 게임 코드 없음
+이름·아이콘·권한만 있고, 곧바로 (B) 로 제어를 넘긴다
+
+(B) 네이티브 엔진
+
+Unity C++ 엔진 + scripting runtime
+Unity 가 미리 빌드해 배포. 프로젝트마다 다르지 않음
+
+(C) 프로젝트 데이터
+
+직렬화된 씬·에셋 + 내 C# 코드
+
+---
+
+(A)와 (B)는 빌드할 때 컴파일되는 게 아니라 복사된다
+
+Windows/UnityPlayer.dll
+설치본 .../win64_.../UnityPlayer.dll
+
+APK 의 libmain.so
+설치본 .../Libs/arm64-v8a/libmain.so
+
+iPhone/.../UnityRuntime.framework/UnityRuntime
+설치본 .../UnityRuntime.framework/UnityRuntime
+
+---
+
+Windows 빌드
+
+Windows/
+  Universal2D.exe            667,648      [A] 껍데기
+  UnityPlayer.dll         36,922,288      [B] 엔진
+
+  MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll
+
+  Universal2D_Data/
+    Managed/
+      mscorlib.dll
+      UnityEngine.CoreModule.dll
+      Unity.InputSystem.dll ...
+  
+  Resources/
+
+  globalgamemanagers                  [C-3] 직렬화된 Project Settings
+  level0                              첫 씬
+
+---
+
+boot.config
+
+엔진이 부팅 전에 읽는다
+
+gfx-enable-gfx-jobs=1
+gfx-threading-mode=6
+wait-for-native-debugger=0
+hdr-display-enabled=0
+gc-max-time-slice=3
+
+---
+
+gc-max-time-slice
+
+Incremental GC 의 시간 예산이
+
+---
+
+globalgamemanagers
+Editor 의 Project Settings 창에 있던 것이 통째로 직렬화
+
+엔진이 부팅 직후 가장 먼저 읽어 매니저를 초기화
+
+---
+
+Universal2D.exe
+└─ UnityMain2()  →  UnityPlayer.dll
+
+(1) Universal2D_Data/boot.config 읽기
+(2) window / graphics device 생성 (D3D12 / D3D11 / Vulkan)
+(3) mono-2.0-bdwgc.dll 로드
+  mono_jit_init()  →  "Unity Root Domain" 생성
+  그 안에 "Unity Child Domain" 생성
+
+(4) mono_add_internal_call() × 수천 번
+
+(5) ScriptingAssemblies.json 순서대로 어셈블리 로드
+  mscorlib → UnityEngine.*Module → Assembly-CSharp
+
+(6) RuntimeInitializeOnLoads.json 읽고 진입점 호출
+  globalgamemanagers 로드
+
+(7) 첫 씬 로드 (level0)
+(8) PlayerLoop 진입
+
+---
+
+Root Domain 은 프로세스 수명 내내 유지되고
+스크립트는 Child Domain 에 올라간다
+스크립트를 고치면 Child Domain 을 통째로 버리고 새로 만든다
+
+.NET 에 어셈블리 개별 언로드가 없어서 AppDomain 단위로 버린다
+
+Editor 도 이 구조를 그대로 쓴다
+
+---
+
+UnityEditor.dll             machine=0x14c   CLR 헤더 있음 
+UnityEngine.dll             machine=0x14c   CLR 헤더 있음
+UnityEngine.CoreModule.dll  machine=0x14c   CLR 헤더 있음
+
+Unity.dll                   machine=0x8664  CLR 헤더 없음  → 네이티브
+mono-2.0-bdwgc.dll          machine=0x8664  CLR 헤더 없음  → 네이티브
+
+---
+
+machine=0x14c
+관리 어셈블리 표시
+CPU 중립이라 실제 아키텍처와 무관하게 이 값을 쓴다
+
+---
+
+C# 층
+
+UnityEditor.dll
+  Inspector, SceneView, Project 창, 메뉴, PropertyDrawer
+  빌드 파이프라인 로직
+
+UnityEngine.*Module.dll
+  GameObject, Transform, Input … 의 API 표면
+
+---
+
+internal call
+
+C++ 층 — Unity.dll
+  렌더링, 물리, 직렬화, AssetDatabase, 씬 그래프
+  메모리 관리, 플랫폼 추상화
+  Mono 를 호스팅하는 코드
+
+---
+
+UnityEngine.dll 은 껍데기
+
+UnityEngine.dll (191 KB)
+  TypeDef 정의된 타입           31        ← 거의 없다
+  MethodDef 메서드              19
+  Field 필드                    10
+  ExportedType 전달          5,195        ← type forwarding
+  AssemblyRef 참조              73
+
+UnityEngine.CoreModule.dll (1.9 MB)
+  TypeDef 정의된 타입        1,718        ← 실제 선언
+  MethodDef 메서드          16,666
+  Field 필드                 5,787
+  ExportedType 전달              0
+  AssemblyRef 참조               4
+
+UnityEngine.dll 은 타입을 31개만 정의하고 5,195개를 전달한다
+
+---
+
+내 코드:          using UnityEngine;  →  UnityEngine.dll 참조
+컴파일러:         "GameObject 를 UnityEngine.dll 에서 찾아라"
+UnityEngine.dll:  "그건 UnityEngine.CoreModule.dll 에 있다"
+
+
+---
+
+Unity 2017.2 에서 하나였던 UnityEngine.dll 을 기능 단위 모듈로 쪼갰고
+기존 코드 호환을 위해 원래 이름을 "전달만 하는 껍데기" 로 남겨둔 것
+
+---
+
+UnityEngine.CoreModule.dll
+구현이 아니라 선언
+
+MethodDef 테이블의 RVA 필드가 0 인 메서드
+
+UnityEngine.CoreModule.dll   메서드 16,666   몸통 없음 4,428  (26.6%)
+mscorlib.dll                 메서드 27,495      몸통 없음 2,878  (10.5%)
+Unity.InputSystem.dll        메서드  5,860      몸통 없음   116  ( 2.0%)
+
+나머지 73% 도 대부분 얇은 wrapper
+순수 C# 패키지인 InputSystem(2%)과 13배 차이
+
+---
+
+[FreeFunction("UnityEngineObjectBindings::IsPersistent")]   
+internal static bool IsPersistent([NotNull] Object obj)     
+{                                                           
+    if ((object)obj == null)  ThrowHelper.ThrowArgumentNullException(obj, …);   
+
+    IntPtr num = Object.MarshalledUnityObject.MarshalNotNull<Object>(obj);
+
+    if (num == IntPtr.Zero)  ThrowHelper.ThrowArgumentNullException(obj, …);   
+
+    return Object.IsPersistent_Injected(num);   ← 안쪽 호출 
+}                                                           
+                                                            
+// ── 안쪽 icall. 몸통 없음                              
+[MethodImpl(MethodImplOptions.InternalCall)]                
+private static extern bool IsPersistent_Injected(IntPtr obj)
+
+---
+
+Unity.dll 의 PE import 테이블에는 mono-2.0-bdwgc.dll 이 없다
+함수 이름만 문자열로 있다는 건 LoadLibrary + GetProcAddress 로 붙인다는 뜻
+
+mono_jit_init, mono_add_internal_call, mono_runtime_invoke, mono_domain_create_appdomain
+
+Unity.exe
+  LoadLibraryExW("Unity.dll") → UnityMain
+    Unity.dll (C++ 코어)
+      MonoBleedingEdge/EmbedRuntime/mono-2.0-bdwgc.dll 로드
+      GetProcAddress 로 mono_* 함수 주소 확보
+      mono_set_dirs → BCL 위치 알려줌
+      mono_jit_init → "Unity Root Domain" 생성
+      mono_add_internal_call × 수천 번 → 다리 놓기
+      mono_domain_assembly_open → UnityEditor.dll 등 로드
+    
+---
+
+mono-2.0-bdwgc.dll 은 export 심볼이 1,238개인 라이브러리
+주도권은 언제나 C++ 에 있고, Mono 는 C# 을 실행해야 할 때 호출된다
+ 
+---
+
+MarshalNotNull(obj)
+    ├─ obj.m_CachedPtr != 0 이면 → ★ 그대로 반환 (빠른 길, 인라인됨)
+    └─ 0 이면 → m_EntityId 로 테이블 재조회 (느린 길)
+
+---
+
+il2cpp::vm::Thread (vm/Thread.h)
+
+호출하는 스레드가 런타임에 등록돼 있어야 한다
+
+static Il2CppThread* Attach(Il2CppDomain* domain);
+static void Detach(Il2CppThread* thread);
+
+---
+
+안드로이드
+
+Zygote
+
+a process in the Android operating system
+the root of all system and app processes
+
+The init daemon spawns the Zygote process when the Android OS is initialized
+
+The Zygote forks the process and changes the PID, cgroup, and other information
+
+---
+
+init (PID 1)
+  Zygote 프로세스 생성
+    libart.so 로드 (ART 런타임)
+    프레임워크 클래스 preload (Activity, View, Intent …)
+    대기
+
+앱 실행 요청 (system_server → Unix domain socket)
+  fork() ──▶ 내 앱 프로세스
+
+---
+
+앱 프로세스는 exec 로 새 프로그램을 올리는 게 아니라 Zygote 를 fork 한다
+그래서 프로세스가 생기는 순간 이미 관리 런타임이 안에 있다
+
+copy-on-write라 앱 100개가 떠도 Activity 클래스 정의는 물리 메모리에 한 벌이다
+
+---
+
+Android runtime (ART)
+
+executes the Dalvik executable (DEX) format and DEX bytecode specification
+
+---
+
+JVM bytecode (.class)           DEX bytecode (.dex)
+─────────────────────           ────────────────────
+스택 머신                       레지스터 머신
+클래스 하나당 파일 하나         여러 클래스를 파일 하나에
+상수 풀이 클래스마다 중복       상수 풀 공유 → 중복 제거
+
+---
+
+.java
+  │ javac
+  ▼
+.class  (JVM bytecode)     ← unity-classes.jar
+  │ d8 / r8
+  ▼
+classes.dex  (DEX bytecode) ← APK 에 들어가는 것
+  │ ART: 설치 후 dex2oat (AOT) + 실행 중 JIT
+  ▼
+기계어
+
+JVM bytecode 는 빌드 중간 산물로만 잠깐 존재하고 기기에는 안 간다
+
+---
+
+Android 5.0    
+설치 시점에 전량 AOT
+설치가 매우 느리고 저장 공간을 많이 먹음
+
+Android 7.0~
+hybrid combination of AOT, JIT, and profile-guided compilation
+doing precompilation only when the device is idle and charging
+
+dex2oat
+OAT 는 dex2oat 의 산출물 ELF 파일
+
+---
+
+unity-classes.jar
+    bitter/jnibridge/JNIBridge.class
+    com/unity3d/player/UnityPlayer.class              (34,393 바이트)
+    com/unity3d/player/UnityPlayerForGameActivity.class
+    com/unity3d/player/ApplicationExitInfoProvider.class
+    com/unity3d/player/AudioDeviceObserver.class
+    com/unity3d/player/Camera2Wrapper.class
+
+Android 앱은 진입점이 Activity 여야 하고 Activity 는 Java 클래스
+카메라·오디오 볼륨·노치 감지·앱 종료 원인 조회는 Android Framework API 로만 얻을 수 있다
+
+---
+
+JNI 는 네이티브 메서드를 잇는 방법
+Unity 는 NDK 가 권장하는 쪽을 쓴다
+
+Most apps should call RegisterNatives() from JNI_OnLoad()
+
+RegisterNatives
+JNI_OnLoad 안에서 클래스·이름·시그니처·함수포인터를 등록
+
+JNI 는 Java 를 안 쓰는 코드가 Android 를 써야 하기 때문에 있다
+
+---
+
+Android Activity
+
+내가 콜백을 override
+OS 가 필요할 때 부른다
+
+---
+
+public class UnityPlayerGameActivity extends GameActivity implements IUnityPlayerLifecycleEvents, ...
+{                                                             
+    protected UnityPlayerForGameActivity mUnityPlayer;        
+                                                              
+    static { System.loadLibrary("game"); }   ← 이름으로 로드
+                                                              
+    @Override protected void onStart()                        
+    { mUnityPlayer.onStart();  super.onStart();  }            
+    @Override protected void onStop()                         
+    { mUnityPlayer.onStop();   super.onStop();   }            
+    @Override protected void onPause()                        
+    { mUnityPlayer.onPause();  super.onPause();  }            
+    @Override protected void onResume()                       
+    { mUnityPlayer.onResume(); super.onResume(); }            
+    ...                                             
+}                                                             
+
+lib_name = "game"    ART 가 처음 여는 건 libmain.so 가 아니라 libgame.so
+
+---
+
+"we want Java onStop callbacks to be processed before the native part processes the onStop callback." 
+Java 층이 먼저 정리되고 네이티브가 뒤따라야 한다는 것
+
+---
+
+AndroidManifest.xml
+
+android:configChanges="mcc|mnc|locale|touchscreen|keyboard|
+                        keyboardHidden|navigation|orientation|
+                        screenLayout|uiMode|screenSize|
+                        smallestScreenSize|fontScale|
+                        layoutDirection|density"
+
+회전·폰트·다크모드 변경 시 Activity 재생성을 안 한다. 콜백만 받는다
+
+---
+
+apk (47,374,878 바이트)
+  AndroidManifest.xml
+  classes.dex             7,728,428   Java 쪽 전부
+
+  assets/bin/Data/
+    data.unity3d    4,973,532   에셋 단일 아카이브
+    boot.config
+  
+  lib/arm64-v8a/
+    libil2cpp.so         93,337,960   내 C# + BCL + IL2CPP 런타임
+    libunity.so          22,208,928   엔진
+    libgame.so              152,464   GameActivity bridge
+    libmain.so                6,696   loader stub
+
+---
+
+Windows   globalgamemanagers, level0, resources.assets
+iOS       같음
+
+Android   data.unity3d 단일 아카이브
+
+---
+
+로딩 순서
+
+UGAEntry.cpp
+
+[Java][MainThread]  UnityPlayerGameActivity is created
+[Java][MainThread]  UnityPlayerForGameActivity is created
+[C++][MainThread]   libmain.so loads libunity.so 
+[C++][MainThread]   libunity.so JNI_OnLoad is called
+[C++][GameThread]   libgame.so android_main is called 
+[C++][GameThread]   libunity.so Unity Engine is initialized
+
+---
+
+스레드가 둘
+
+Java UI 스레드와 별개의 GameThread 가 있고, 
+Unity 메인 루프는 GameThread 에서 돈다.
+
+---
+
+// ── UGAEntry.cpp                          
+void MainLoop(struct android_app* app)                        
+{                                                             
+    Unity::SetThisThreadAsMainThread();     
+    auto instance = Unity::UnityApplication::CreateInstance(app)
+    instance->Loop();                       ← Unity 가 루프
+    ...                                                         
+}                                                             
+                                                              
+void android_main(struct android_app* app)                    
+{                                                             
+    switch (s_InitializationStatus) {                         
+        case InitializationStatus::Success:                   
+            if (!s_Destroyed) { MainLoop(app); … }            
+            IdleLoop(app);                                    
+            …                                                 
+    }                                                                                                     
+}                                                             
+
+---
+
+┌─ 앱 프로세스 (Zygote 에서 fork) ─────────────────────────────── ─┐
+│                                                                  │
+│  ┌─ ART (libart.so) ─────────┐   ┌─ IL2CPP 런타임 ────────────┐  │
+│  │  DEX bytecode 실행         │  │  libil2cpp.so 안에 링크됨  │  │
+│  │  (dex2oat 로 일부 네이티브)│  │                            │  │
+│  │  ART 관리 힙               │  │  IL2CPP 관리 힙            │  │
+│  │  타입 루트: java.lang.Object│ │  타입 루트: System.Object  │  │
+│  │  ★ ART GC                  │  │  Boehm GC                  │  │
+│  │                            │  │                            │  │
+│  │  UnityPlayerGameActivity   │  │  내 MonoBehaviour          │  │
+│  │  Camera2Wrapper            │  │  UnityEngine.*             │  │
+│  │  JNIBridge                 │  │  mscorlib                  │  │
+│  └───────────┬───────────────┘   └────────────┬───────────────┘  │
+│              │                               │                   │
+│              └──────────  JNI ───────────────┘                   │
+│                           │                                     │
+│  ┌────────────────────────▼──────────────────────────────────┐  │
+│  │  libunity.so   libgame.so   libmain.so                    │  │
+│  │  관리 힙 없음. malloc 과 mmap 의 세계                     │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+
+---
+
+AndroidJavaObject
+
+C# 쪽 wrapper 가 JNI GlobalRef 를 잡고 있고, 
+그건 ART GC 가 그 Java 객체를 못 거두게 막는다
+
+C# GC 가 wrapper 를 거둬도 finalizer 가 돌기 전까지 Java 참조가 안 풀린다.
+using 으로 감싸라는 조언이 두 GC 사이의 수동 해제 지점
+
+---
+
+C# 에서 Android 를 만지는 법
+Unity 6 은 타입 있는 API 를 크게 늘렸다
+
+UnityEngine.AndroidJNIModule.dll
+
+UnityEngine.Android 네임스페이스에 40여 개 타입
+
+AndroidApplication
+AndroidConfiguration                       화면·언어·키보드 설정
+AndroidInsets / AndroidInsetsType          노치·상태바
+AndroidUIModeNight                         다크 모드
+AndroidAssetPacks / AndroidAssetPackInfo   Play Asset Delivery
+
+---
+---
+---
+
+아이폰
+
+프로세스가 뜨는 방식 — fork 가 아니라 exec
+
+커널
+└─ launchd (PID 1) // "the first process to run on macOS/iOS"
+      │   
+      └─ posix_spawn / exec ──▶ 내 앱 프로세스
+            │
+            └─ dyld 가 커널에 의해 먼저 매핑됨
+                │
+                ├─ dyld shared cache 연결
+                │   (UIKit, Foundation, libSystem, Metal ...
+                │    이미 하나로 합쳐져 메모리에 상주)
+                ├─ 앱의 .app/Frameworks/*.framework 로드
+                ├─ ObjC runtime 초기화 (+load, 클래스 등록)
+                └─ main() 호출
+
+---
+
+Android     fork  → 부모의 상태(ART, 프레임워크 클래스)를 물려받음
+
+iOS         exec  → 빈 주소 공간에서 시작
+                    공유되는 건 dyld shared cache (네이티브 코드 페이지)
+
+---
+
+Objective-C 는 동적 디스패치, 리플렉션, 런타임 클래스 조작 지원
+objc_msgSend 는 그냥 함수 호출
+테이블을 뒤져서 함수 포인터를 찾아 점프하는, C 로 짤 수 있는 코드
+
+ARC 는 컴파일러가 소스를 보고 retain/release 호출을 코드에 박아 넣는다
+순환 참조가 자동으로 안 풀리고 weak 를 개발자가 써야 한다
+멈춤 없음, 메모리 예측 가능
+
+---
+
+com.apple.security.cs.allow-jit 같은 entitlement
+Apple 이 서명해준 앱에만. Safari(JavaScriptCore) 등
+
+---
+
+JIT 는 정의상 "실행 중에 기계어를 만들어 메모리에 쓰고 그리로 점프하는 것"
+
+---
+
+Mono AOT (Full AOT) 로도 가능은 했고 실제로 Unity 는 오랫동안 그렇게 했다
+IL2CPP 는 그 다음 세대의 답
+
+---
+
+여기서 파생되는 제약
+
+System.Reflection.Emit          ✗ 런타임 코드 생성
+dynamic (DLR)                   ✗
+Assembly.Load 로 외부 dll       ✗ 핫패치·모드 로딩 불가
+제네릭 가상 메서드의 일부 조합  ✗ (빌드 때 인스턴스화 안 된 조합)
+
+---
+
+에디터에서는 JIT 이 필요한 조합을 그 자리에서 만들어내지만,
+AOT 는 빌드 시점에 존재하는 조합만 갖고 있다
+
+---
+
+Universal2D/iPhone/
+  MainApp/main.mm              ← 앱 실행 파일의 진입점
+  Classes/                        ← 트램펄린 (소스로 제공)
+    main.mm                     ← UnityFramework 클래스 구현
+    ...
+  Libraries/
+    libil2cpp/                ← IL2CPP 런타임 ★ 소스
+  
+  UnityFramework/               ← framework 타깃
+
+  Il2CppOutputProject/
+    Source/il2cppOutput/        ← 생성된 C++ (여기가 906 MB)
+  
+  Data/
+    globalgamemanagers, level0, resources.assets, sharedassets0.assets
+    boot.config
+    Managed/Metadata/global-metadata.dat   12,730,668
+
+---
+
+iOS       UnityRuntime(엔진코어)   ← ★ 정적 아카이브. 링크는 ★ Xcode 가 한다
+          Classes/                 ← ★ 소스. 컴파일도 Xcode 가
+          libil2cpp/               ← ★ 소스. 컴파일도 Xcode 가
+
+---
+
+트램펄린
+
+UIKit / Objective-C 세계 ──튕김──▶ Unity C++ 엔진 세계
+Unity C++ 엔진 세계      ──튕김──▶ UIKit / Objective-C 세계
+
+UIApplicationMain 이 부른 콜백 → UnityXxx() C 함수로 전달
+Unity 엔진이 키보드를 원함     → UITextField 를 띄움
+Unity 엔진이 화면 크기를 원함   → UIScreen 을 읽음
+
+---
+
+MainApp/main.mm
+실행 파일 Unity-iPhone
+
+[UnityFramework runUIApplicationMain]
+
+---
+
+Classes/main.mm
+UnityFramework 클래스
+
+runUIApplicationMainWithArgc
+  UnityInitTrampoline()
+  UnityInitRuntime()
+  std::signal(SIGPIPE, SIG_IGN)
+
+---
+
+Android 에서는 Unity 가 자기 스레드를 만들고 instance->Loop() 로 루프를 소유
+
+iOS
+
+UnityAppController 는 UIApplicationDelegate 를 구현한 클래스
+UIKit 이 이 객체에게 생명주기를 통보한다
+
+application:didFinishLaunchingWithOptions:
+applicationWillResignActive:      ← 전화, 알림
+applicationDidEnterBackground:    ← 홈 버튼
+applicationWillEnterForeground:
+applicationDidBecomeActive:
+applicationWillTerminate:
+
+---
+
+Android 의 Activity 생명주기
+
+Android onCreate  ≈ iOS didFinishLaunchingWithOptions
+        onPause   ≈     willResignActive
+        onStop    ≈     didEnterBackground
+        onRestart ≈     willEnterForeground
+        onResume  ≈     didBecomeActive
+        onDestroy ≈     willTerminate  (★ iOS 는 호출 보장이 더 약함)
+
+---
+
+프레임은 누가 돌리나
+CADisplayLink
+
+UnityAppController+Rendering.mm
+
+[CADisplayLink                                 
+  displayLinkWithTarget: self                               
+  selector: @selector(repaintDisplayLink)];
+
+[_displayLink 
+  addToRunLoop: [NSRunLoop currentRunLoop]        
+  forMode: NSRunLoopCommonModes]
+
+extern "C" void UnityRepaint() 
+{                                                           
+    @autoreleasepool {                                      
+        Profiler_FrameStart();                              
+        UnityPlayerLoopWithBackbuffer(…);   ← 딱 한 프레임
+        Profiler_FrameEnd();                                
+    }                                                       
+}                                              
+
+CADisplayLink 는 디스플레이 리프레시에 동기화된 콜백
+화면이 갱신될 때마다 repaintDisplayLink 가 불리고
+그 안에서 Unity 는 한 프레임을 진행하고 즉시 반환한다
+
+---
+
+UnityRuntime(엔진코어) 아카이브 참조 개수
+  pthread_create           ×6
+  JobQueue                 ×604
+  WorkerThread             ×345
+  RenderThread             ×85
+
+---
+
+IL2CPP 를 관리 런타임이라 부를 수 있느냐는 애매하다. 
+GC 와 타입 메타데이터와 리플렉션은 있지만 bytecode 를 실행하지는 않으니까
+
+---
+
+.app 은 실행 파일이 아니라 디렉터리다. 
+Finder 가 하나처럼 보여줄 뿐
+
+---
+
+128 KB 고정 블록 LZ4
+
+랜덤 액세스가 되는 압축
+파일 오프셋 9,698,589 의 level0 을 읽고 싶으면 
+그 구간을 덮는 블록만 풀면 된다
+
+---
