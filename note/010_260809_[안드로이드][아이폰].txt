@@ -1,0 +1,333 @@
+Android
+
+Java Activity ──▶ libgame.so 의 android_main
+진입 축 — "OS가 어디로 들어오나"
+GameActivity 경로에만 존재
+
+UnityPlayer ──▶ libmain.so ──dlopen──▶ libunity.so
+로더 축 — "엔진을 어떻게 켜나"
+구식/신식 경로 모두 존재
+
+---
+
+Strip Engine Code OFF
+    → libunity.so의 precompiled 버전 사용
+
+---
+---
+---
+
+Strip Engine Code
+
+Unity engine 링크 재료
+  *** libunityruntime.a         엔진 본체 
+  libunityexternal.a        서드파티 의존
+  baselib.a                 플랫폼 추상화 최하층
+  link.rsp / compile.rsp    링커·컴파일러 인자 목록
+
+=>
+
+libunity.so
+
+---
+
+정리
+
+libunity.so = runtime dynamic 
+libunityruntime.a = static archive 
+
+---
+
+유저 스크립트 + IL2CPP 런타임 — 한 파일로 합쳐짐
+
+libil2cpp.so
+  ├─ il2cppOutput/*.cpp        내 C#이 변환된 C++
+  └─ libil2cpp 런타임 소스      GC, 메타데이터, 리플렉션, icall 디스패치
+
+내 코드와 런타임이 처음부터 한 덩어리로 컴파일
+다만 메타데이터는 코드가 아니라서 빠져나가 있어
+
+assets/bin/Data/Managed/Metadata/global-metadata.dat
+
+---
+
+최종 산출물
+
+libmain.so
+libgame.so
+libunity.so
+libil2cpp.so
+lib_burst_generated.so
+
+---
+---
+---
+
+iOS
+
+프로세스 진입점 — MainApp/main.mm 
+
+번들 경로로 프레임워크를 찾아 로드하고 runUIApplicationMainWithArgc 를 실행
+Frameworks/UnityFramework.framework
+
+---
+
+트램펄린
+
+Classes 42개
+  main.mm
+  UnityAppController.mm                  UIApplicationDelegate 서브클래스
+  ...
+
+Classes/main.mm은 UnityFramework ObjC 클래스 구현
+
+---
+
+엔진
+
+UnityRuntime.framework/UnityRuntime
+
+---
+
+유저 스크립트 + IL2CPP 런타임
+
+GameAssembly (Xcode 타깃)
+  ├─ libGameAssembly.a    내 C#이 C++로 변환·컴파일된 것
+  └─ il2cpp.a             libil2cpp 런타임
+
+---
+
+최종 산출물 — .app 안
+
+Unity-iPhone                            실행 파일. MainApp/main.mm 하나 컴파일한 것
+
+Frameworks/UnityFramework.framework/
+└─ UnityFramework // Mach-O binary
+
+---
+
+libGameAssembly.a ─┐
+il2cpp.a            │
+UnityRuntime        │
+baselib.a           ├── linker ──→ UnityFramework
+Classes/*.o         │                  ↑
+Burst code          │             최종 Mach-O
+plugins             │
+                   ─┘
+
+이 과정에서 .a 가 복사되는 게 아니라 
+archive 안의 필요한 .o와 section들이 최종 Mach-O에 편입
+
+---
+
+프로젝트의 native 타깃은 셋
+
+Unity-iPhone        (com.apple.product-type.application)
+UnityFramework      (product-type.framework)
+GameAssembly        (product-type.library.static)
+Unity-iPhone Tests  (unit-test 번들)
+
+---
+
+bundle container
+
+UnityRuntime.framework/
+├─ UnityRuntime
+...
+
+Apple 규칙상 framework 내부의 주 binary 이름은 framework 이름과 같아야 합니다
+
+---
+---
+---
+
+Android 
+
+NativeActivity의 치명적 결함
+IME(소프트 키보드) 지원이 없다
+
+it doesn't have built-in support for input methods (such as onscreen keyboards)
+so it's often not a good choice for applications that need to support text input
+
+---
+
+구식 — Activity
+Activity was originally the only application entry point that Unity supported
+
+public class UnityPlayerActivity extends Activity   // NativeActivity 아님
+
+이 구현체들은 전부 libunity.so 안에
+
+---
+
+신형 — GameActivity
+Previously NativeActivity was the recommended class for games
+GameActivity replaces it as the recommended class for games
+
+GameTextInput 내장(IME 해결)
+AppCompatActivity 파생이라 Jetpack 컴포넌트 사용 가능
+SurfaceView로 렌더해서 다른 UI와 섞기 쉬움
+입력이 android_input_buffer 기반 새 구현(NativeActivity의 InputQueue와 별개).
+
+---
+
+GameActivity 층    libgame.so   가 주인,  libunity.so  가 손님
+GameActivity니까 game
+
+IL2CPP 층          libunity.so  가 주인,  libil2cpp.so 가 손님
+
+---
+
+구형
+
+[1] ART  →  UnityPlayerActivity.onCreate            extends Activity
+
+[2] new UnityPlayerForActivityOrService
+
+[3] UnityPlayer::loadNative
+      System.load(nativeLibraryDir + "/libmain.so")
+
+[5] dlopen libunity.so
+
+---
+
+신형
+
+━━━ 진입 축 ━━━                                        ━━━ 로더 축 ━━━
+
+[1] ART → UnityPlayerGameActivity
+      extends GameActivity extends AppCompatActivity
+
+[2] static { System.loadLibrary("game") }
+      → libgame.so dlopen
+      → game-activity 쪽 JNI_OnLoad
+
+[4] onCreateSurfaceView
+      → new UnityPlayerForGameActivity(...)
+                                                      [5] UnityPlayer::loadNative
+                                                            → libmain.so 로드
+
+                                                      [6] dlopen libunity.so
+
+[8] native thread 에서 android_main(app)   
+  → MainLoop(app)
+
+[9] UnityApplication::CreateInstance(app)
+      dlopen("libunity.so", RTLD_LAZY)   
+      AttachCurrentThread(...) //native thread 를 JVM 에 붙임
+      libunity.so 가 GAToUnity 함수 포인터를 채운다
+
+[10] instance->Loop()
+
+[11] 매 프레임  ProcessFrame() → LoopRuntime()
+
+---
+
+①  ART         ──loadLibrary("game")───▶  libgame.so
+②  ART         ──load("libmain.so")────▶  libmain.so
+③  libmain.so  ──dlopen────────────────▶  libunity.so
+
+④  OS          ──android_main──────────▶  libgame.so
+⑤  libgame.so  ──dlopen + dlsym────────▶  libunity.so
+⑥  libgame.so  ──LoopRuntime()─────────▶  libunity.so
+
+---
+
+unity 엔진 최종 산출물을 만드는 재료
+
+안드로이드 libunityruntime.a
+아이폰 UnityRuntime.framework // static library
+
+=>
+
+libunity.so
+
+---
+
+          재료                     최종 아웃풋
+Android   libunityruntime.a    →   libunity.so       
+iOS       UnityRuntime         →   UnityFramework.framework 안으로 흡수
+
+---
+
+얇은 런처 + 두꺼운 엔진
+
+Windows   WindowsPlayer.exe   667 KB   +   UnityPlayer.dll            36.9 MB
+Android   libmain.so          6.7 KB   +   libunity.so                28.6 MB
+iOS       Unity-iPhone  (main.mm 하나)  +   UnityFramework.framework
+
+---
+
+Windows   GameAssembly.dll                    내 코드 + il2cpp 런타임 합쳐짐
+Android   libil2cpp.so                        내 코드 + il2cpp 런타임 합쳐짐
+iOS       libGameAssembly.a  +  il2cpp.a      나뉨
+
+---
+
+옛날 Microsoft LINK 같은 도구는 실행 후 사용자에게 차례로 질문하는 대화형 인터페이스를 제공했습니다
+
+C:\> LINK
+
+Object Modules [.OBJ]: main.obj util.obj
+Run File [MAIN.EXE]: game.exe
+Libraries [.LIB]: libc.lib
+...
+
+여기서
+LINK의 prompt
+      ↓
+사용자가 입력하는 response
+
+---
+
+그리고 그 응답들을 미리 파일에 적어놓을 수 있었습니다
+
+build.rsp
+
+main.obj util.obj
+game.exe
+libc.lib
+
+실행
+
+LINK @build.rsp
+
+---
+
+response file
+= 프로그램의 질문(prompt)에 대한
+  사용자의 응답(response)을 미리 적어둔 파일
+
+이후 .rsp 내용은 사실상 command-line argument 목록이 되었습니다
+command-line switches를 담는 텍스트 파일
+
+---
+
+libunityruntime.a
+┌──────────────────────────┐
+│ Modules_AI_0.o           │
+│ Modules_Physics_0.o      │
+│ Modules_Animation_0.o    │
+│ ...                      │
+└──────────────────────────┘
+             │
+             │ linker가 필요한 .o를 꺼냄
+             ▼
+      최종 link output
+
+---
+
+.a ──link──→ executable
+.a ──link──→ shared library (.so)
+.a ──link──→ 다른 native binary
+
+---
+---
+---
+---
+---
+---
+---
+---
+---
+---
