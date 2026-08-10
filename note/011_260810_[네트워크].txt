@@ -1,0 +1,733 @@
+Networking (RakNet 기반, ~2018.2)
+
+UnityEngine.Network, NetworkView, [RPC] 어트리뷰트로 구성된 
+엔진 내장 시스템
+
+백엔드는 서드파티 라이브러리 RakNet이었고, 
+Unity가 직접 운영하는 
+Master Server / Facilitator(NAT punchthrough)가 붙어 있었습니다.
+
+---
+
+NetworkView가 Transform·Rigidbody·Animation을 자동 직렬화(State Synchronization)
+서버 권한(authority) 모델 부재, 확장성 없음
+
+---
+
+UNet (Unity 5.1, 2015 ~ 2022.2)
+
+Unity가 직접 만든 첫 자체 스택
+UnityEngine.Networking 네임스페이스
+
+HLAPI
+NetworkManager, NetworkIdentity, NetworkBehaviour, 
+[SyncVar], [Command], [ClientRpc], [TargetRpc],
+NetworkTransform. spawn/ownership 개념 도입
+
+LLAPI
+NetworkTransport — 채널별 QoS(Reliable, Unreliable, ReliableSequenced 등) 지정
+
+서비스
+Unity Multiplayer Relay Server + legacy Matchmaker (CCU 과금)
+
+---
+
+이 공백기에 커뮤니티가 UNet HLAPI를 포크해서 만든 것이 
+Mirror이고, 이후 FishNet, 상용으로는 Photon(PUN/Fusion) 이 자리를 채웠습니다
+
+---
+
+공백기(2018.8 ~ 2022.6)
+
+Mirror (2018~, vis2k): deprecation 발표와 거의 동시에 
+UNet HLAPI를 포크
+
+API가 거의 동일해서 기존 UNet 프로젝트가 사실상 drop-in 이전
+
+Mirror가 한 일은 UNet의 결함을 하나씩 제거
+
+transport를 교체 가능하도록 분리(Telepathy TCP, KCP, Steam, WebSocket 등), 
+weaver를 자체 관리, 
+오픈소스로 커뮤니티가 직접 패치
+
+---
+
+FishNet (FirstGearGames)
+
+client-side prediction, lag compensation, 오브젝트 풀링을 무료로 내장
+
+---
+
+Photon 계보
+
+PUN / PUN2: UNet 이전부터 존재.
+현재 maintenance/LTS 모드, 기능 추가 중단
+
+Bolt: Fredrik Holmström이 만든 것을 Photon이 인수
+state replication + prediction 지향
+Fusion 등장 후 단종
+
+Quantum (2018~2019)
+
+deterministic lockstep/rollback 엔진
+상태가 아니라 입력만 주고받아 수백 유닛을 동기화하는 아키타입
+격투게임·RTS용
+
+Fusion: 2022년 3월 17일
+
+data compression, client-side prediction, lag compensation 내장
+
+---
+
+
+Connected Games 전략 (2018~2020)
+사업 전환 선언
+
+새 스택의 4대 원칙
+
+Transparency(전체 소스가 포함된 패키지 형태)
+Modularity(모놀리식 대신 필요한 것만)
+Performance(DOTS/ECS/Job System/Burst 호환)
+Archetype specificity(FPS·RTS 등 장르별 솔루션)
+
+---
+
+FPS Sample(2018): client-side prediction, lag compensation 오픈소스 레퍼런스
+Multiplay 인수: P2P Relay를 대체할 Game Server Hosting
+Vivox 인수: 보이스/텍스트 채팅
+
+Unity Transport Package (UTP, com.unity.transport): Burst/Jobs/NativeArray 기반 저수준 UDP 레이어
+Pipeline 개념으로 Reliable·Fragmentation·Simulator 스테이지를 조립
+
+---
+
+두 갈래 Netcode (2020~)
+
+Unity가 오픈소스 프로젝트 MLAPI를 인수해
+Netcode for GameObjects(NGO) 로 개명했습니다
+
+MLAPI 0.1.0이 2021년 3월
+NGO 1.0.0이 2022년 6월 27일
+
+---
+
+Netcode for GameObjects (com.unity.netcode.gameobjects)
+MonoBehaviour 워크플로용
+
+NetworkManager, NetworkObject, NetworkBehaviour, NetworkVariable<T>, [Rpc]
+NetworkTransform
+
+transport는 UTP를 기본 사용
+
+---
+
+Netcode for Entities (com.unity.netcode, 구 DOTS NetCode)
+ECS 기반 대규모/경쟁용. 
+ghost snapshot 동기화, importance 기반 대역폭 우선순위, 
+prediction + rollback + resimulation, 
+interpolation. 0.x preview를 거쳐 1.0은 2023년
+
+"하나의 만능 솔루션"을 포기하고 워크플로에 따라 이원화
+
+---
+
+UGS
+Unity Gaming Services 통합 (2022~)
+
+Relay, Lobby, Matchmaker, Multiplay Hosting, Vivox, Authentication이 
+개별 패키지로 출시됐다가
+Unity 6 시점에 com.unity.services.multiplayer(Multiplayer Services SDK) 하나로 통합
+
+---
+
+묶으면서 달라진 것
+
+공통 인증 레이어
+com.unity.services.core + com.unity.services.authentication
+모든 서비스가 하나의 player identity를 공유
+이전엔 서비스마다 별도 계정 체계
+
+---
+
+셀프서비스화
+
+UGS 편입으로 대시보드에서 카드 등록만으로 시작할 수 있게 됐습니다
+
+we are working to provide a more automated workflow and thereby 
+wider access to Multiplay's hosting and scaling tech
+
+---
+
+서비스 간 조합
+
+Matchmaker가 Game Server Hosting에 직접 할당을 요청하고
+Cloud Code allocator를 통해 서드파티 호스팅 업체도 붙일 수 있습니다
+
+---
+
+개념 모델
+
+"Relay에 붙고 Lobby를 만들고 Matchmaker를 호출하고"가 아니라 
+Session이라는 단일 추상으로 묶였습니다
+
+---
+
+Unity 6: 도구화 + Distributed Authority (2024~)
+
+Multiplayer Center: 장르·플레이어 수·권한 모델을 답하면 패키지 조합을 추천
+
+Multiplayer Play Mode: 에디터에서 가상 플레이어를 동시 실행
+
+Dedicated Server 빌드 타겟 + com.unity.dedicated-server 패키지: 서버 빌드에서 렌더/오디오 스트립
+
+Multiplayer Tools: Runtime Network Stats Monitor, Network Profiler
+
+---
+
+NGO 2.0 (Unity 6)
+
+Distributed Authority 토폴로지 도입
+
+Network Settings에서 Network Topology를 Distributed Authority로 바꾸고 
+DistributedAuthorityTransport를 쓰면
+
+단일 서버 권한 대신 각 클라이언트가 자기 오브젝트의 권한을 나눠 갖습니다
+
+전용 서버 비용 없이 client-hosted를 안정적으로 굴리려는 접근
+
+---
+---
+---
+
+Package Manager 이전 시대의 이야기
+Package Manager 자체가 2017~2018년에 등장
+
+RakNet: Jenkins Software(Kevin Jenkins)가 만든 상용 C++ 네트워킹 미들웨어
+Unity가 라이선스를 사서 엔진 네이티브 레이어에 통합
+
+UnityEngine.Network / NetworkView / [RPC]
+그 위에 씌운 얇은 C# managed wrapper
+
+---
+
+Master Server / Facilitator
+Unity가 직접 운영한 별도 서버 프로세스 
+(소스는 공개했고 자체 호스팅도 가능했습니다)
+
+---
+
+Unity가 RakNet의 극히 일부만 노출
+
+RakNet 자체는 object replication, RPC, patching, secure connections, voice chat
+real-time SQL logging까지 갖춘 물건이었는데, 
+Unity가 C#으로 열어준 건 NetworkView + RPC + NAT punchthrough
+
+RakNet은 2014년 7월 Oculus VR이 인수하면서 modified BSD로 오픈소스화됐고, 
+당시 보도에 라이선시로 Unity, Havok, Mojang, Maxis, SOE가 나열
+
+---
+
+확장 불가능
+
+전체가 닫힌 블랙박스
+
+Transport를 교체할 수 없고(Steam sockets, WebSocket 불가)
+직렬화 포맷을 바꿀 수 없고
+엔진 소스는 유료 엔터프라이즈 전용이라 들여다볼 수도 없었습니다
+문제가 생기면 우회할 방법이 없었습니다
+
+---
+
+Relevancy(interest management) 부재
+
+NetworkView가 붙은 오브젝트는 그룹 내 모든 클라이언트에게 전송됩니다
+
+고정 직렬화
+
+Transform/Rigidbody/Animation을 통째로 정해진 포맷으로 보냅니다
+delta compression이나 quantization을 하려면 OnSerializeNetworkView를 직접 다 구현
+
+Main thread 종속
+
+직렬화가 managed C#에서 GC allocation과 함께 메인 스레드에서 돌았습니다
+
+Master Server가 단일 중앙 지점
+
+샤딩도, 리전 분산도, 매치메이킹 룰도 없었습니다
+
+---
+---
+---
+
+Authority
+Authority는 그 오브젝트의 시뮬레이션을 돌리고, 상태를 확정하고, 나머지에게 뿌리는 주체
+
+Server authority
+단 하나의 인스턴스가 모든 오브젝트의 authority를 독점
+
+---
+
+Distributed authority
+
+authority가 오브젝트 단위로 쪼개져 클라이언트들에게 분산됩니다
+
+A small, lightweight central state service tracks a minimal amount of game state and routes network traffic
+There is no server simulating the game
+each connected game instance runs a subdivision of the simulation
+
+---
+
+입력 반응성
+
+listen server에서 비호스트 클라이언트는 자기 입력 결과를 보려면 RTT를 기다리거나 
+prediction을 구현해야 합니다
+
+Distributed authority에서는 자기 플레이어의 authority를 자기가 갖고 있으므로 로컬에서 즉시 적용됩니다
+prediction/reconciliation 기계장치 자체가 필요 없어집니다
+
+---
+
+복원력
+
+단일 실패 지점이 없고
+host migration이 프레임워크 기본 기능
+
+---
+
+모든 오브젝트를 관장하는 단일 physics simulation이 없습니다. 
+물리 기반 게임플레이는 접근법을 바꿔야 합니다
+
+클라이언트를 더 신뢰하므로 치팅에 취약합니다
+
+not suitable for high-performance competitive games that require an accurate predictive motion model
+
+---
+
+Pipeline
+middleware chain
+Unreal의 PacketHandler 컴포넌트 체인과 같은 구조
+decorator/middleware 체인 패턴
+웹 서버 미들웨어 스택
+
+Pipeline = driver.CreatePipeline(typeof(FragmentationPipelineStage), typeof(ReliableSequencedPipelineStage))
+
+송신 시 메시지가 stage를 순서대로 통과하며 
+각 stage가 자기 헤더를 덧붙이고
+수신 시 역순으로 통과하며 벗겨냅니다
+
+---
+
+FragmentationPipelineStage
+
+MTU 단위 패킷 분할
+
+UTP는 기본적으로 MTU(약 1400바이트)에 들어가는 메시지만 보낼 수 있고, 
+그보다 큰 페이로드는 여러 UDP datagram으로 쪼개서 보내고 재조립해야 합니다. 
+
+기본 pre-fragmentation 용량은 4096바이트, 
+최대 약 20MB(reliable과 조합하면 약 88KB)
+
+"어떤 프로퍼티를 복제할지"는 한 층 위인 netcode 레이어의 일
+NGO의 NetworkVariable dirty tracking
+Netcode for Entities의 ghost field 직렬화
+
+---
+
+ReliableSequencedPipelineStage
+
+UDP 위에 TCP스러운 보장을 얹습니다
+sequence number + ACK + 재전송 + 순서 어긋난 패킷 버퍼링
+
+연결당·파이프라인당 in-flight 32패킷 제한
+(최대 2040이지만 문서 권장 상한은 256
+재전송 버퍼가 미리 할당되므로 서버 메모리를 먹습니다
+
+ofor very important traffic that you can't afford to lose
+(like RPCs and character actions)
+아껴 쓰라고 합니다
+
+---
+
+제한이 파이프라인 단위이므로
+RPC용과 채팅용 reliable 파이프라인을 따로 만들어 우회하는 트릭도 문서에 나옵니다
+
+---
+
+SimulatorPipelineStage
+테스트 도구
+
+로컬에서 인위적으로 나쁜 네트워크 조건을 주입해서, 
+localhost나 LAN에서 개발하면서도 
+실제 열악한 환경을 확인하게 
+
+packetDelayMs — 좋은 광랜은 20, 나쁜 모바일은 200
+packetJitterMs — 보통 delay의 절반 이하
+packetDropPercentage — 나쁜 모바일이어도 3을 넘기는 경우는 드묾
+maxPacketCount — 동시에 지연시킬 수 있는 패킷 수
+
+---
+---
+---
+
+공백기
+2018년 8월 ~ 2022년 6월 (약 4년)
+
+시작은 UNet deprecation 발표(2018년 8월), 끝은 NGO 1.0.0(2022년 6월 27일)
+
+HLAPI는 2018.4 LTS까지 동봉
+동작은 했지만 deprecated 딱지
+
+LLAPI는 2019.4 LTS까지 동봉
+에디터 제거는 2022.2.0a5(2022년 2월)
+
+Unity의 후속 스택은 그 4년 내내 preview/experimental이었습니다
+
+com.unity.transport preview(2019~),
+DOTS NetCode 0.0.x preview(2019~), 
+FPS Sample(2018 — 샘플 프로젝트이지 패키지가 아님), 
+MLAPI 인수(2020년 말) → 0.1.0(2021년 3월) → NGO 1.0 전까지 계속 preview
+
+---
+
+실무 팀들은 Mirror(UNet HLAPI 포크라 마이그레이션이 거의 drop-in이었던 게 결정적
+Photon(PUN2, 이후 Fusion), 나중에는 FishNet으로
+기존 UNet 프로젝트가 살아남을 수 있는 길
+
+---
+---
+---
+
+N개의 머신이 각자 자기 월드 사본을 돌리고, 
+20~200ms의 latency로 떨어져 있고, 
+유실이 일어나는 채널로 연결되어 있습니다. 
+
+완벽한 동기화는 물리적으로 불가능합니다. 
+정보는 빛보다 빠를 수 없고 패킷은 사라집니다.
+
+그래서 실제로 하는 일은 "무엇이 반드시 같아야 하고, 무엇은 달라도 되고, 어긋났을 때 누가 이기는가"를 정하는 것
+
+---
+
+Authority / 충돌 해결
+무엇이 진실인지 정하는 주체
+
+---
+
+State replication
+무엇을(dirty tracking), 
+얼마나 자주(tick rate), 
+누구에게(relevancy), 
+얼마나 압축해서(quantization, delta compression)
+
+---
+
+Latency hiding
+
+interpolation(원격 오브젝트를 약간 과거로 렌더링해 부드럽게)
+prediction(로컬 입력 즉시 반영)
+reconciliation(서버와 어긋나면 보정)
+lag compensation(서버가 슈터가 본 시점으로 되감기)
+
+---
+---
+---
+
+NGO 2.0
+
+RPC 타겟팅의 표현력
+
+1.x의 ServerRpc/ClientRpc 이분법이
+[Rpc(SendTo.*)] 하나로 통합되고, 타겟이 9종으로
+
+Server, NotServer, Owner, NotOwner, Me, NotMe, Everyone, ClientsAndHost, 
+SpecifiedInParams
+
+"요청한 그 클라이언트에게만 응답" 이 자연스러워진 것
+
+RpcTarget.Single/Group/Not으로 임의 클라이언트 집합 지정이 가능
+
+---
+
+권한 모델을 토폴로지에서 분리
+
+IsServer / IsOwner → HasAuthority
+이게 distributed authority를 가능하게 한 핵심 추상화
+
+---
+
+Ownership이 1급 시스템으로 승격
+
+NetworkObject.OwnershipStatus
+
+None — 재분배·요청·이전 전부 불가 (플레이어 오브젝트 등)
+
+Distributable — 클라이언트 입퇴장 시 자동 재분배
+
+NPC, 소품, 발사체, 월드 아이템
+누가 시뮬레이션해도 상관없는 것들
+시뮬레이션 부하를 참가자 수에 비례해 자동으로 나눠 갖는 메커니즘
+
+---
+
+Transferable — 아무 클라이언트나 언제든 변경 가능
+RequestRequired — 요청 후 승인 필요
+SessionOwner — 항상 세션 오너 소유, 오너 교체 시 자동 이전
+
+---
+
+Anticipation — prediction
+
+"authoritative 값"과 "화면에 보이는 값"을 분리한다는 개념
+
+AnticipatedNetworkVariable<T>는 
+Value(anticipated)와 AuthoritativeValue를 나눠 갖고, 
+
+AnticipatedNetworkTransform은 
+AnticipatedState와 AuthoritativeState를 나눠 갖습니다
+
+---
+
+서버에서 Anticipate()를 호출하면 두 값이 동시에 갱신됩니다
+덕분에 서버와 클라이언트가 같은 코드를 공유할 수 있습니다
+
+---
+
+NetworkVariable 타입별 변종 18종 제거 → 제네릭 하나로
+
+NetworkChannel, MultiplexTransportAdapter 제거
+UTP의 pipeline이 그 역할을 흡수
+
+---
+
+DeferLocal 어트리뷰트
+host 모드의 구조적 함정을 API로 흡수
+
+for mutually recursive RPCs on hosts, 
+where sending back and forth between the server and the 'host client' 
+will cause a stack overflow if each RPC is executed instantly
+
+dedicated server에서는 ClientRpc → ServerRpc → ClientRpc가 네트워크를 왕복하며 자연스럽게 프레임 경계를 넘습니다
+호스트에서는 양쪽이 같은 프로세스라 각 RPC가 즉시 동기 호출되어 무한 재귀에 빠집니다
+
+---
+
+LocalDeferMode
+
+public void TryOpenDoorRpc(int doorId, RpcParams rpcParams)
+{
+    if (HasAuthority) {
+        OpenDoorRpc(doorId);   // 안쪽 RPC
+    }
+}
+
+TryOpenDoorRpc가 authority에서 로컬로 즉시 실행되면, 
+그 안의 OpenDoorRpc 메시지가 바깥쪽 TryOpenDoorRpc 메시지보다 먼저 전송될 수 있습니다
+원격 클라이언트 입장에서는 "문을 열었다"가 "문을 열려고 시도한다"보다 먼저 도착합니다
+
+Invoking an RPC from within another RPC introduces the risk 
+that the local RPC may invoke before messages are sent to other game clients
+
+This can result in the RPC message for the inner RPC invocation 
+being sent before the message for the outer RPC
+
+---
+
+한계
+
+Netcode for GameObjects doesn't support full client-side prediction and reconciliation
+
+but it does support client anticipation
+a simplified model that lacks the full rollback-and-replay prediction loop
+
+---
+
+Relevancy가 여전히 수동
+
+NetworkObject.CheckObjectVisibility 델리게이트를 직접 작성
+자동 spatial partitioning이 없습니다
+
+---
+
+컬렉션 변경 시 CheckDirtyState() 수동 호출 필요
+게다가 재귀적으로 모든 항목을 전수 검사해서 큰 컬렉션에서는 비용이 큼
+
+---
+
+codegen이 NetworkBehaviour 필드만 스캔
+NetworkVariable 타입이 다른 곳에 있으면 serializer가 생성되지 않습니다
+
+---
+---
+---
+
+ILPostProcessor
+
+[Rpc]가 붙은 메서드는 컴파일 후 IL 단계에서 호출부가 재작성됩니다
+
+The ILPostProcessor pass replaces all call-site locations where the RPC method is invoked with additional code
+to ensure that the RPC message is generated 
+and sent to the appropriate targets 
+rather than just locally invoking the method
+
+---
+
+PlayerObject
+"내 캐릭터/아바타"
+한 클라이언트당 하나만
+
+NetworkManager의 Create Player Prefab을 켜고 프리팹을 지정하면, 
+접속 승인된 클라이언트마다 그 프리팹 인스턴스가 자동 스폰됩니다
+
+수동으로는 GetComponent<NetworkObject>().SpawnAsPlayerObject(clientId)
+
+client-server에서는 connection approval 과정에서 클라이언트별로 다른 프리팹을 지정할 수 있고, 
+distributed authority에서는 OnFetchLocalPlayerPrefabToSpawn 콜백으로 지정합니다
+
+---
+
+스폰 시점
+
+scene management가 꺼져 있으면 접속 승인 시점, 
+켜져 있으면 초기 동기화 완료 시점에 스폰됩니다
+
+---
+
+함정
+
+플레이어 프리팹에 PlayerInput이나 CharacterController가 있으면 기본적으로 비활성화해두고 
+OnNetworkSpawn에서 IsOwner일 때만 켜야 합니다. 
+안 그러면 가장 최근에 생성된 인스턴스에서 입력 이벤트가 올라옵니다.
+
+---
+---
+---
+
+1.x에서 ownership은 그냥 데이터였습니다
+
+ulong OwnerClientId 필드 하나
+IsOwner bool
+서버만 호출 가능한 ChangeOwnership(clientId)
+
+---
+
+2.0에서는 서브시스템이 됐습니다
+
+선언적 정책
+프리팹마다 OwnershipStatus를 에디터 드롭다운으로 지정
+
+협상 프로토콜
+RequestOwnership() → 현 소유자의 OnOwnershipRequested가 승인 여부를 반환 
+→ 요청자의 OnOwnershipRequestResponse로 결과 통보
+
+런타임 상태: IsOwnershipLocked, IsRequestInProgress, SetOwnershipLock(bool)
+
+수명주기: 입퇴장 시 자동 재분배, 세션 오너 자동 승격, SessionOwner 오브젝트 자동 이전
+
+타입화된 실패: OwnershipPermissionsFailureStatus, OwnershipRequestResponseStatus
+
+---
+---
+---
+
+Client prediction 일반화
+
+Input이 1급 개념이어야 함
+직렬화 가능하고 tick 스탬프가 찍히고 버퍼링·재생 가능해야 함
+
+예측 대상 상태 전체를 열거하고 스냅샷할 수 있어야 함
+tick N의 상태를 저장하고 복원할 수 있어야 함
+
+시뮬레이션이 재실행 가능한 함수여야 함
+state(N+1) = f(state(N), input(N))
+
+resimulation
+루프가 tick 기반이어야 하고, 한 프레임에 여러 tick을 돌릴 수 있어야 함
+
+---
+
+Update()/FixedUpdate()는 프레임 구동이고 임의의 부작용을 일으킵니다
+
+상태가 아무 MonoBehaviour의 아무 필드에나 흩어져 있습니다
+"게임플레이 상태 전체"를 열거할 방법이 없습니다
+
+입력을 아무 데서나 읽습니다
+
+재실행하면 사운드가 다시 나고 파티클이 다시 터지고 오브젝트가 또 스폰됩니다
+
+---
+
+NGO는 구조적으로 일반 롤백을 할 수 없습니다
+
+"provides networking capabilities to GameObject/MonoBehaviour workflows." 위에 얹는 라이브러리
+
+AnticipatedNetworkVariable이 롤백할 수 있는 건 자기가 소유한 값뿐이고, 
+나머지는 OnReanticipate로 사용자에게 떠넘깁니다
+
+---
+
+Fusion은 루프와 상태 메모리를 빼앗아서 해결했습니다
+
+(a) [Networked] 프로퍼티는 C# 필드가 아닙니다
+
+"add the [Networked] attribute to an auto-property of a NetworkBehaviour derived class, 
+which instructs Fusion to automatically generate IL code 
+that connects the property's getter and setter 
+to the State memory buffer of the associated Network Object."
+
+"Internally Fusion stores the entire networked state for each tick 
+as a single memory buffer, called a Snapshot."
+
+tick별 월드 전체 상태가 하나의 연속 메모리 블록입니다
+그래서 롤백이 memcpy 한 번입니다
+
+상태가 C# 힙에 흩어져 있으면 불가능한 일
+
+---
+
+(b) FixedUpdateNetwork()가 FixedUpdate()를 대체합니다
+
+"FixedUpdateNetwork() can be called multiple times for the same state transition 
+to re-simulate the current predicted state 
+based on updates received from the server."
+
+롤백이 사용자에게 투명한 이유
+
+"The re-simulation is transparent for [Networked] properties 
+because Fusion will reset the network state before calling FixedUpdateNetwork() for re-simulation purposes."
+
+비멱등 부작용은 IsResimulation / IsForward로 가드
+이미 시뮬레이션한 tick인지 처음인지를 구분해서, VFX·사운드·스폰을 재실행에서 건너뜁니다
+
+---
+
+상태가 blittable해야 합니다
+INetworkStruct는 "must be blittable, which means it has an absolute memory footprint in both managed and unmanaged contexts"
+
+C# 컬렉션을 못 씁니다. 
+NetworkArray, NetworkDictionary, NetworkLinkedList, NetworkString(고정 크기)으로 대체해야 하고, 
+전부 [Networked] 프로퍼티로 선언해서 ILWeaver가 backing memory에 연결하게 해야 합니다
+
+게임플레이 로직을 FixedUpdateNetwork 안에 넣어야 합니다
+일반적인 MonoBehaviour 코딩 스타일과 결별
+
+---
+
+롤백 루프는 안 짜도 되지만,
+게임 상태를 Fusion의 메모리 모델에 맞춰 재설계해야
+
+---
+
+Netcode for Entities가 prediction을 제대로 갖춘 건 우연이 아닙니다. 
+ECS가 이미 앞의 네 조건을 만족합니다
+
+상태가 unmanaged component chunk에 있어 열거·스냅샷 가능
+스템이 명시적 순서를 가진 함수
+SimulationSystemGroup이라는 명시적 시뮬레이션 루프
+입력을 command buffer 형태로 다루는 게 자연스러움
+
+---
+
+action anticipation(입력 즉시 애니메이션만 재생)
+controlled desync(최종 상태만 맞추고 도달 경로는 클라이언트가 재해석)
+
+---
