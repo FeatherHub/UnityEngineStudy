@@ -1,0 +1,892 @@
+Unity 1.0 (2005)
+
+GameObject + Component 조합 모델로 시작
+
+Transform만 특별 취급
+모든 GameObject가 반드시 하나 갖고, 제거할 수 없고
+Hierarchy 창에 보이는 트리가 곧 Transform 트리
+
+---
+
+씬 = 레벨이던 시절
+
+Application.LoadLevel(1);            // Build Settings의 인덱스
+Application.LoadLevelAdditive(2);
+
+씬은 파일이자 빌드 인덱스였고, 
+런타임에 다루는 1급 객체가 아니었습니다
+
+"지금 뭐가 열려 있냐"를 물어볼 API도 사실상 없었습니다.
+
+---
+
+Unity 5.3 (2015.12) — Multi-Scene Editing
+
+Scene이 struct로 1급 개념이 되고, 
+SceneManager / EditorSceneManager 도입
+
+여러 씬을 동시에 열고 편집·저장, 오브젝트를 씬 간에 이동
+
+---
+
+LoadLevel 계열은 SceneManager.LoadScene으로 세대 교체되고 이후 제거
+
+DontDestroyOnLoad 오브젝트도 내부적으로는 별도 씬에 담기는 형태가 됩니다
+
+---
+
+TransformHierarchy
+
+루트와 그 아래 모든 자식이 연속 메모리에 담기고, 
+개수가 capacity를 넘으면 재할당됩니다.
+Transform.hierarchyCapacity가 그 capacity를 노출한 것
+
+핵심 비용은 Transform Changed message
+오브젝트 하나가 움직이면 부모·자식·관심 시스템 전부에 변경을 알려야 합니다
+
+---
+
+SetPositionAndRotation — 두 번 칠 걸 한 번으로
+전역 브로드캐스트 대신, 특정 transform에 관심 등록하는 방식
+TransformChangeDispatch — 알림을 큐에 모아 잡 스레드에서 해소
+
+---
+
+유니티 Spotlight 팀 권장은 "루트당 GameObject 50개 내외
+매 프레임 움직이는 오브젝트 아래에는 위치를 신경 쓰는 것만 두라는 가이드
+
+---
+
+2018 — 계층이 병렬 처리 단위가 되다
+
+C# Job System + TransformAccessArray.
+
+Transform 계층을 잡에서 병렬로 읽고 쓸 수 있게 됩니다.
+계층 구조가 곧 스레딩 분할 경계
+
+---
+
+2018~ — DOTS/ECS는 씬 그래프를 버렸다
+
+Entity에는 계층이 내장되어 있지 않습니다.
+부모-자식이 필요하면 Parent / Child / LocalToWorld 같은 component를 붙일 뿐
+
+편집은 SubScene에 GameObject로 하고,
+baking이 그걸 entity + component로 변환합니다.
+
+---
+---
+---
+
+오브젝트 모델
+이중 객체
+
+진짜 객체는 C++ native object
+C# 쪽 UnityEngine.Object는 native 포인터를 들고 있는 얇은 래퍼
+
+---
+
+Destroy를 해도 C# 참조 자체는 GC 대상이라 살아 있습니다
+그래서 == 연산자를 오버로드해서 "native가 죽었으면 null처럼 보이게" 만듭니다
+
+에디터에서는 한 걸음 더 나갑니다.
+MonoBehaviour의 미할당 필드를 진짜 null이 아니라 fake null 객체로 채워둡니다
+그래야 NullReferenceException이 났을 때 
+"어느 GameObject의 어느 필드"인지 알려줄 수 있기 때문
+
+?. 나 ?? 같은 C# 문법은 이 오버로드를 우회하므로 
+파괴된 객체를 살아있다고 판정합니다
+
+---
+
+ScriptableObject
+
+MonoBehaviour와 똑같은 직렬화 규칙을 쓰되 GameObject에 붙지 않는 객체
+씬과 무관한 데이터 자산을 만들 수 있게 되면서
+데이터 주도 설계·설정 자산의 기반이 됩니다
+
+---
+
+Prefab
+GameObject 하나 이상의 직렬화 스트림
+
+프리팹 인스턴스는 "원본 참조 + 수정 목록(m_Modifications)"
+
+중요한 건 prefab이 에디터 전용 개념
+
+빌드하면 수정 목록이 평범한 직렬화 스트림으로 구워지고,
+런타임에 생성된 오브젝트는 자기가 프리팹이었다는 사실을 모릅니다
+
+---
+
+Unity 2018.3
+
+Nested Prefab, Prefab Variant, Prefab Mode 편집
+Variant도 결국 "베이스 프리팹 + m_Modifications"라는 같은 표현을 씁니다
+
+---
+
+어셈블리 모듈 분할 (2017.2 전후)
+
+거대한 UnityEngine.dll이 UnityEngine.CoreModule 등 수십 개 모듈로 쪼개집니다
+코드 스트리핑 단위를 잘게 만들어 빌드 크기를 줄이려는 목적
+
+---
+
+ECS의 다른 오브젝트 모델
+
+Entity는 index + version 쌍인 가벼운 ID일 뿐이고,
+데이터는 archetype chunk에 SoA로 모입니다
+
+---
+
+Unity 6.4 — instanceID에서 EntityId로
+32비트 int instanceID가 64비트 EntityId 구조체로 교체되는 중
+
+// UnityEngine.Object::GetInstanceID — 6.4에서 deprecated
+// UnityEngine.Object::GetEntityId — 대체 API, 64비트
+
+ToULong / FromULong / IsValid를 제공하고, 
+문서 설명은 "A unique identifier for a Unity object".
+
+---
+
+주의점
+
+int로 캐스팅, 부호로 의미 판단, ToString을 직렬화에 사용, ID 정렬로 생성 순서 추정
+
+---
+---
+---
+
+직렬화
+
+씬·에셋·프리팹 저장/로드
+Inspector — C# 프로퍼티를 호출하지 않고 직렬화 데이터를 직접 읽고 씁니다
+핫 리로드 — 스크립트 재컴파일 시 상태를 직렬화해 살렸다가 복원
+
+---
+
+직렬화 규칙
+
+프로퍼티는 직렬화되지 않습니다
+public 이거나 [SerializeField]
+static / const / readonly 제외
+커스텀 클래스·구조체는 [Serializable] 필요
+다차원 배열, 배열의 배열, Dictionary, 중첩 컨테이너 불가
+
+---
+
+기본은 inline by value입니다.
+커스텀 클래스를 참조가 아니라 값으로 host 객체 안에 펼쳐 넣습니다
+
+---
+
+null을 표현할 수 없음 → 빈 인스턴스로 대체됨
+같은 객체를 두 필드가 가리켜도 저장 후엔 별개 객체 두 개
+다형성 불가 → 부모 타입 필드에 자식을 넣으면 부모 필드만 저장되고 부모로 복원
+
+---
+
+저장 형식의 역사
+
+초기 — 바이너리 + GUID/fileID
+
+에셋 참조는 경로가 아니라 (GUID, fileID) 쌍입니다.
+GUID 128비트는 .meta 파일에 들어 있어 "어떤 파일이냐",
+fileID 64비트는 "그 파일 안의 어떤 객체냐"를 가리킵니다.
+
+파일을 옮기거나 이름을 바꿔도 참조가 안 깨지는 이유
+.meta를 버전 관리에서 빼면 프로젝트가 박살나는 이유
+
+---
+
+Unity 3.5 (2012.02) — 텍스트 직렬화
+
+text-based scene/prefab format 도입. 
+같은 릴리스에 Cache Server도 들어옵니다.
+
+목적은 팀 협업 — diff와 merge
+
+---
+
+Editor Settings의 Asset Serialization 모드로 Force Text / Force Binary / Mixed 선택
+초기엔 상위 라이선스 기능이었고 이후 전면 개방됩니다
+
+---
+
+UnityYAML
+YAML의 부분집합만 구현한 자체 고성능 라이브러리
+
+객체 하나가 YAML 문서 하나
+
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1234567890
+GameObject:
+  m_Component:
+  - component: {fileID: 1234567891}
+
+!u! 뒤 숫자가 classID
+1 = GameObject, 4 = Transform
+
+& 뒤가 그 파일 안의 fileID
+
+---
+
+ISerializationCallbackReceiver
+직렬화 전후 훅
+Dictionary 같은 걸 두 배열로 펴서 저장하는 표준 우회법
+
+---
+
+FormerlySerializedAs
+필드 이름 바꿔도 데이터 유지
+에디터 전용
+
+---
+
+JsonUtility (5.3) 
+같은 시리얼라이저를 JSON 입출력으로 노출
+
+---
+
+[PreferBinarySerialization]
+
+텍스트 모드에서도 특정 ScriptableObject는 바이너리로
+
+---
+
+Unity 2019.3 — [SerializeReference]
+inline by value의 한계를 뚫은 변화
+
+managed reference registry에 객체를 따로 넣고 id로 참조합니다
+null 표현, 공유 참조, 순환 참조, 다형성이 전부 가능해집니다
+
+---
+
+ScriptableObject를 남발하지 않고 
+인터페이스/추상 클래스 리스트를 직렬화할 수 있게 되면서
+비헤이비어 트리, 노드 그래프, 카드 효과 같은 데이터 구조 설계가 크게 달라집니다
+
+---
+
+Unity 6.x
+
+[MakeSerializable] 어트리뷰트
+직렬화 규칙을 컴파일 타임에 잡아주는 analyzer 추가
+런타임에 조용히 데이터가 사라지던 실수를 빌드 전에 잡는 방향
+
+---
+
+AssetBundle
+zip 비슷한 범용 아카이브
+
+압축은 LZMA(파일 전체)와 LZ4(청크 단위)
+
+LZ4는 5.3부터 들어왔고, 
+필요한 객체가 든 청크만 풀 수 있어서
+디스크에서 직접 로드가 가능해졌습니다
+
+---
+
+LZ = Lempel–Ziv
+1977년 Abraham Lempel과 Jacob Ziv가 발표한 LZ77 계열 압축 알고리즘
+
+LZ 계열은 이전에 등장한 바이트열을 찾아서 
+“저 앞의 몇 바이트를 다시 복사해라” 같은 참조로 바꾸는 
+사전(dictionary) 압축 계열
+
+---
+
+LZMA
+
+초기 이름
+Lempel
+Ziv
+Markov chain
+Arithmetic coding
+
+이후 arithmetic coding이 range coding으로 교체
+
+Lempel–Ziv–Markov chain Algorithm
+
+반복 데이터 탐색
+      ↓
+큰 dictionary를 적극 활용
+      ↓
+확률 모델 + range coding
+      ↓
+압축률을 높임
+
+---
+
+Unity AssetBundle에서는 
+LZMA가 content section 전체를 하나의 연속 stream으로 압축합니다
+압축률이 좋고 다운로드 크기를 줄이기에 유리
+
+어떤 asset 하나를 읽을 때도 전체 압축 stream을 풀어야 하므로 random access 비용이 큽니다
+
+Unity는 CDN으로 내려받는 AssetBundle에 LZMA를 적합한 선택으로 설명합니다
+
+---
+
+LZ4 역시 Lempel–Ziv 계열의 고속 무손실 압축 알고리즘
+Yann Collet이 만든 알고리즘이며 공식 프로젝트는 이름을 그냥 LZ4로 사용
+
+LZ4는 LZ77 계열이며 압축률보다는 압축/해제 속도에 강하게 최적화되어 있습니다
+
+---
+
+배포 파일 크기가 중요
+        → LZMA
+
+실행 중 빠른 asset 접근이 중요
+        → LZ4
+
+---
+---
+---
+
+Godot는 _process / _physics_process가 트리 순회로 전파됩니다
+부모가 먼저, 형제는 트리 순서대로
+
+유니티 Update 호출 순서는 계층과 무관하고 공식적으로 정의되어 있지 않습니다
+필요하면 Script Execution Order로 따로 지정합니다
+
+---
+
+Godot는 입력·notification·propagate_call·group이 트리를 타고 오르내립니다
+유니티에 SendMessage / BroadcastMessage가 있긴 하지만 리플렉션 기반의 느린 예외 경로지, 
+엔진의 기본 디스패치가 아닙니다
+
+---
+
+Godot 2D는 형제 순서가 곧 그리기 순서입니다.
+유니티에서 계층 순서 자체가 의미를 갖는 곳은 uGUI Canvas 정도이고, 
+그 외엔 순서를 바꿔도 아무 일도 안 일어납니다.
+
+---
+
+유니티 계층이 지는 책임
+
+Transform 공간 합성
+활성 상태 전파 — activeInHierarchy
+수명 소유 — 부모를 Destroy하면 자식도 죽음
+프리팹 경계
+uGUI의 그리기 순서와 레이아웃
+
+---
+
+이전 세대의 제약 세 가지
+
+첫째, 에디터가 씬을 하나만 엽니다.
+레벨을 조각으로 나눠도 조각마다 따로 열어야 하고, 
+이어붙인 모습을 볼 수 없습니다.
+
+둘째, 런타임 additive 로드는 되는데 언로드가 안 됩니다.
+LoadLevelAdditive로 들어온 오브젝트에는 어느 씬에서 왔다는 표시가 붙지 않습니다.
+그래서 부분 언로드를 하려면 스폰한 오브젝트 목록을 직접 관리해 Destroy해야 했습니다
+
+셋째, 씬에 런타임 정체성이 없습니다.
+"지금 어떤 씬이 열려 있나", "새로 만든 오브젝트는 어느 씬 소속인가"
+를 물어볼 API 자체가 없었습니다.
+
+---
+
+Scene struct라는 정체성, 
+UnloadScene, 
+MoveGameObjectToScene, 
+SetActiveScene, 
+sceneLoaded/sceneUnloaded,
+에디터 멀티 씬 편집
+
+레벨 하나를 여러 씬으로 쪼개 여러 사람이 동시에 작업하고,
+런타임에 부분 로드/언로드하는 방식이 이때부터 가능해집니다
+
+---
+
+Transform은 개별 힙 객체가 아닙니다.
+루트 하나당 블록 하나가 할당되고, 그 계층의 모든 transform이 그 블록 안의 슬롯에 들어갑니다
+로컬 TRS, 부모 인덱스, 더티 플래그가 연속 메모리에 놓입니다
+
+부모가 자식보다 앞에 오도록 정렬되어 있어서
+월드 행렬 갱신이 포인터를 따라다니는 트리 순회가 아니라 배열을 앞에서 뒤로 훑는 선형 스캔이 됩니다
+
+---
+
+hierarchyCapacity를 미리 잡아두면 SetParent와 Destroy가 빨라진다
+용량 초과 시 블록을 통째로 재할당·복사하기 때문
+
+SetParent
+포인터 하나 바꾸는 게 아니라 블록 사이로 데이터를 옮기는 작업
+
+"루트당 50개 내외" 권장
+루트 하나에 5000개를 매달면 그 잡 하나가 통째로 길어지고, 다른 스레드는 놀게 됩니다
+
+---
+
+UnityEngine.Object 참조는 원래 값으로 저장된 적이 없습니다.
+파일 안이면 fileID, 파일 밖이면 (GUID, fileID).
+즉 테이블을 거치는 간접 참조가 기본형
+
+SerializeReference는 이 아이디어를 managed 객체에 그대로 적용합니다
+host의 직렬화 데이터 안에 ManagedReferenceRegistry라는 리스트를 두고
+필드에는 id만 적습니다
+
+---
+
+다형성은 결국 "실행 시점의 실제 타입을 데이터에 적을 수 있는가"의 문제
+유니티 바이너리는 이미 필드 이름·타입·순서를 스키마로 들고 다녔습니다.
+
+그러니 registry 엔트리마다 assembly / namespace / class를 추가할 수 있습니다
+
+---
+
+시리얼라이저가 transfer(visitor) 구조
+
+같은 순회 코드를 모드만 바꿔 YAML 쓰기, 바이너리 쓰기, 참조 수집, Inspector 표시에 재사용
+
+필드 하나의 처리를 "값으로 펼침"에서 "registry에 넣고 id 기록"으로 바꾸는 건
+새 포맷이 아니라 순회 규칙 하나 추가
+
+---
+
+어려웠던 건 표현이 아니라 id 안정성
+
+2019·2020에서는 저장할 때마다 depth-first 순회로 id를 새로 매겼습니다
+배열 원소 순서만 바꿔도 파일이 크게 흔들려 머지 충돌이 났고
+두 사람이 각자 객체를 추가하면 같은 id가 생겨 머지가 불가능했습니다
+
+---
+
+2021 LTS의 Stable ID가 이걸 정리합니다.
+한 번 부여된 id는 저장·로드를 반복해도 유지되고,
+시간과 시스템 정보 해시로 만들어져 충돌하지 않습니다
+
+---
+
+예전엔 "첫 번째 프로퍼티 경로"로 필드를 찾아서 
+배열 순서만 바뀌면 오버라이드가 미아가 됐는데
+이제는 managedReferences[12345].myString처럼 id를 경로에 넣습니다
+
+---
+
+2020까지는 managed reference 15개 중 1개만 타입이 없어도 host 전체가 에러 상태가 되어
+나머지 14개도 Inspector에 안 보이고 편집분이 조용히 버려졌습니다.
+2021부터는 로드 가능한 것만 살리고 없는 건 null로 둡니다.
+
+---
+
+Serialization rules analyzer
+유니티가 제공하는 Roslyn diagnostic analyzer
+규칙 ID는 UAC1000부터 UAC1011까지.
+
+UAC1001 — public 필드인데 그 타입에 [Serializable]이 없어 조용히 스킵됨
+UAC1002 — 상속 계층 중 하나라도 [Serializable] 누락
+UAC1005~1008 — 자기 참조 순환. 직접 순환은 필드가 통째로 무시되고, 간접 순환은 10단계에서 잘려나갑니다
+UAC1009 — 지원 안 되는 컬렉션. 다차원·재그드 배열, Dictionary, HashSet, Queue, Stack
+UAC1011 — long / ulong 기반 enum
+
+유니티 직렬화 실패는 예외를 던지지 않습니다
+값이 조용히 사라질 뿐
+
+Play 모드에 들어갔더니 리스트가 비어 있고, 왜인지는 아무도 안 알려주는 현상
+그걸 컴파일 타임으로 옮긴 것
+
+---
+---
+---
+
+host
+
+MonoBehaviour, ScriptableObject, ScriptedImporter 등 
+UnityEngine 클래스를 특수화한 객체를 host object라고 부른다
+
+host = managed 객체들을 품고 있는 UnityEngine.Object 인스턴스
+
+---
+
+유니티 직렬화 파일에서 독립된 정체성을 갖는 단위는 UnityEngine.Object뿐
+
+YAML이면 --- !u!114 &<fileID> 블록 하나
+바이너리면 오브젝트 테이블의 엔트리 하나
+
+일반 C# 클래스는 파일 안에서 주소가 없습니다
+반드시 어떤 UnityEngine.Object의 바이트 범위 안에 얹혀 삽니다
+
+---
+
+즉 [SerializeReference]의 "공유 참조"는 host 경계 안에서만 성립합니다.
+
+host를 넘어 공유하고 싶으면 답은 여전히 ScriptableObject입니다
+UnityEngine.Object여야 전역 주소(GUID + fileID)를 갖기 때문
+
+---
+---
+---
+
+Stable ID의 기반 설계
+
+(a) id가 "저장된 데이터"였지 "순서에서 유도된 값"이 아니었다
+
+(b) 분산 고유 id 생성은 유니티의 기존 관습
+시간과 시스템 정보 해시로 id를 만든다
+.meta의 에셋 GUID가 처음부터 그 방식
+
+중앙 서버 없이 각자 로컬에서 생성하고, 
+충돌은 확률적으로 없다고 간주
+
+---
+
+(c) 런타임에 이미 객체↔id 대응표를 들고 있었다
+
+// ManagedReferenceUtility::GetManagedReferenceIdForObject — 인스턴스로 id 조회
+// ManagedReferenceUtility::SetManagedReferenceIdForObject — id 직접 지정
+// ManagedReferenceUtility::GetManagedReferenceIds       — host의 전체 id 목록
+
+---
+
+(d) 64비트 id 공간과 예약값
+
+해시로 만들려면 순차 정수로는 넓은 공간이 필요합니다
+rid는 fileID와 같은 64비트 폭이라 새로 넓힐 필요가 없었습니다
+
+그리고 id 공간에 예약 sentinel이 이미 정의되어 있습니다
+
+// ManagedReferenceUtility::RefIdNull    — null을 나타내는 예약 id
+// ManagedReferenceUtility::RefIdUnknown — 타입을 해석 못 한 엔트리
+
+---
+
+RefIdUnknown
+"타입은 못 찾았지만 이 자리에 뭔가 있었다"를 id로 표현할 수 있으니,
+타입이 사라져도 엔트리를 통째로 버리지 않고 원본 바이트와 함께 보존할 수 있습니다
+
+---
+
+직렬화 제약
+
+R1. 진짜 객체는 C++에 있다
+Texture, Mesh, Transform은 C++ 객체
+MonoBehaviour의 사용자 필드도 같은 파일, 같은 스키마 체계(TypeTree)에 들어가야 합니다
+
+설계 목표는 "C# 언어의 표현력"이 아니라 **"C++ 멤버 레이아웃과 C# 클래스의 교집합"**
+
+---
+
+프로퍼티는 직렬화하지 않는다
+C++ 쪽에 프로퍼티라는 개념이 없고 레이아웃은 필드 단위입니다.
+
+TypeTree의 사용자 데이터 어휘가 "원시 타입, 고정 구조체, 동종 원소 배열 한 겹"으로 닫혀 있습니다
+
+---
+
+R2. 역직렬화는 런타임 예산 안에서 끝나야 한다
+
+2005년 타깃은 모바일과 웹 플러그인
+
+값 기반 인라인 저장이면 MonoBehaviour 하나의 데이터가 연속 블록이라 거의 그대로 읽어 들일 수 있습니다.
+참조 registry는 id 조회와 개별 할당이 따라붙습니다
+
+---
+
+R3. 이 코드는 저장할 때만 도는 게 아니다
+
+Instantiate 한 번이 직렬화 한 번입니다
+도메인 리로드는 로드된 모든 MonoBehaviour를 직렬화합니다
+초당 수천 번 도는 경로라, 순회 자체가 할당 없고 예측 가능해야 합니다
+
+---
+
+R4. Inspector가 직렬화 데이터만 보고 그려져야 한다
+
+Inspector는 getter를 호출하지 않고 SerializedProperty로 직렬화 표현을 직접 읽고 씁니다
+"직렬화되는 것 = 편집 가능한 것 = diff에 보이는 것"이 한 몸
+
+역직렬화는 객체 그래프가 절반만 지어진 시점에 돕니다. 
+참조가 아직 안 풀렸고 Awake도 안 불렸습니다. 
+여기서 사용자 setter를 실행하면 그 코드가 아직 존재하지 않는 것들을 만지게 됩니다.
+
+---
+
+프로퍼티는 직렬화하지 않는다
+SerializedProperty의 경로 문법이 표현할 수 있는 모양이어야 합니다
+Inspector가 값을 쓰려면 주소 지정 가능한 저장 위치가 필요합니다
+
+역직렬화 중에는 사용자 코드를 절대 실행하지 않는다는 원칙의 결과
+ISerializationCallbackReceiver라는 명시적 훅이 따로 있는 이유
+
+---
+
+R5. 데이터가 코드보다 오래 산다
+
+에셋은 사용자의 작업물이고 클래스 정의는 매일 바뀝니다
+
+그래서 이름 기반 자기 서술 스키마, 없는 필드는 기본값, 모르는 필드는 무시, 
+리네임은 FormerlySerializedAs
+
+---
+
+R6. 텍스트로 머지돼야 한다 (3.5 이후)
+
+---
+
+static / const / readonly 제외
+
+static은 인스턴스 데이터가 아니라 담을 슬롯이 없습니다.
+const는 저장 위치 자체가 없습니다.
+
+readonly는 역직렬화기가 네이티브 오프셋으로 직접 메모리를 쓰기 때문에, 쓸 수는 있지만 
+그러면 C# 불변식을 조용히 깨뜨립니다
+
+---
+
+개선된 것
+
+public이면 직렬화된다.
+
+접근 제어자와 영속성을 같은 축에 묶은 건 설계 실수에 가깝습니다
+
+2005년엔 "Inspector에 노출할 것 = public"이 자연스러웠지만, 
+결과적으로 "다른 스크립트에서 쓰려고 public 했더니 Inspector 값이 생성자 초기화를 덮어씀"
+이라는 고전적 함정이 생겼습니다
+
+[SerializeField] + private 관습이 사실상의 정정
+
+---
+
+0층 — 인라인 값. 신원 없음. [Serializable] 커스텀 클래스의 기본. 두 필드가 같은 객체를 가리켜도 저장 후엔 별개
+1층 — managed reference (rid). host 안에서만 유효
+2층 — fileID. 파일 하나(씬, 프리팹, 에셋) 안에서 유효
+3층 — GUID + fileID. 프로젝트 전역
+
+씬 오브젝트끼리는 2층을 씁니다
+
+---
+
+--- !u!1 &963194225
+GameObject:
+  m_Component:
+  - component: {fileID: 963194228}                        # 같은 파일 → fileID만
+
+--- !u!114 &963194230
+MonoBehaviour:
+  m_Script: {fileID: 11500000, guid: 8f3c..., type: 3}    # 다른 파일 → GUID + fileID
+  m_Target: {fileID: 963194228}                           # 같은 씬의 Transform
+  m_Config: {fileID: 11400000, guid: a91b..., type: 2}    # 다른 에셋의 ScriptableObject
+
+같은 씬 안이면 fileID 하나로 끝납니다. 
+파일을 넘어가면 GUID가 붙습니다
+
+---
+
+씬을 넘어가면 막힙니다
+
+Cross-Scene 참조는 씬 파일에 저장될 수 없기 때문에, 
+에디터가 그런 참조를 만드는 것 자체를 막는다.
+
+"같은 파일 안의 fileID" 또는 "GUID로 지목되는 에셋".
+"지금 같이 열려 있는 다른 씬의 인스턴스"를 가리키는 표현 자체가 없습니다.
+
+프리팹 에셋이 씬 오브젝트를 참조할 수 없는 것도 같은 이유입니다
+
+---
+
+씬 → 에셋: 가능
+에셋 → 에셋: 가능
+에셋·프리팹 → 씬 오브젝트: 불가
+씬 → 다른 씬: 저장 불가
+
+---
+
+실무 해법
+
+런타임 결선(로드 후 등록·탐색), 
+ScriptableObject를 중계 채널로 두기, 
+또는 참조 대신 이벤트
+
+---
+
+MonoBehaviour는 UnityEngine.Object 파생
+
+인스턴스마다 fileID가 있고, 그 인스턴스가 든 씬이나 프리팹에는 GUID가 있습니다
+
+MonoBehaviour 인스턴스는 씬이나 프리팹 안에 살고, 
+에셋 쪽에서 그걸 가리킬 수가 없습니다.
+
+ScriptableObject는 자기 파일을 가진 에셋이라 누구나 가리킬 수 있습니다
+
+host를 넘어 공유하려면 대상이 에셋이어야 합니다
+씬 안의 MonoBehaviour는 주소는 있지만 에셋 쪽에서 도달할 수 없습니다.
+
+---
+
+직렬화기가 "오브젝트 모델이 실제로 무엇인가"를 정한다
+
+직렬화되는 것 
+  Inspector에 보이는 것 
+  프리팹 오버라이드가 지목할 수 있는 것 
+  도메인 리로드를 살아남는 것 
+  Instantiate가 복사하는 것
+
+---
+
+DOTS는 셋을 동시에 갈아치워야 했다
+
+Entity라는 새 신원 모델, 
+chunk blob이라는 새 직렬화, 
+entity scene 스트리밍과 
+ContentLoadInterface라는 새 로딩
+
+---
+
+이 시스템 전체는 저작 데이터의 영속화용입니다
+게임 상태의 영속화용이 아닙니다
+
+그래서 씬을 런타임에 저장할 수 없고, 
+세이브 파일은 PlayerPrefs나 JSON처럼 별개의 경로를 씁니다
+
+---
+---
+---
+
+오브젝트 테이블을 읽고 파일 안의 모든 오브젝트를 먼저 다 만든다. 
+이때 (파일, fileID) → 런타임 인스턴스 대응표가 생긴다
+
+각 오브젝트의 데이터를 채운다. 
+필드에 적힌 fileID는 그 대응표를 거쳐 실제 참조가 된다
+
+다 되면 AwakeFromLoad
+
+---
+
+A를 만드는 시점에 A가 가리키는 B가 아직 없을 수 있기 때문
+순환 참조가 하나만 있으면 미해결 참조가 반드시 생깁니다
+
+"일단 전부 만들고, 그다음에 잇는다"가 그래프 복원의 일반해
+
+---
+
+유니티는 "타입의 모양을 아는 함수 하나"를 만들고 모드만 바꿔 씁니다
+
+저장, 복제, 참조 수집, Inspector 표시, GC 마킹이 전부 같은 함수의 변주입니다
+
+---
+
+신원
+"이것과 저것이 같은 것인가." 대상 자체의 성질
+
+주소
+"어떻게 찾아가는가."
+이름 붙이는 체계의 성질
+언제나 어떤 공간과 기간 안에서만 유효
+
+---
+
+C#에서 참조 동일성이 메모리 주소로 구현되는 건 맞습니다
+하지만 그건 "주소가 곧 신원"이 아니라 
+**"이 프로세스, 이 순간에는 주소가 신원의 충실한 대리인"**이라는 뜻
+
+---
+
+압축 GC가 객체를 옮기면 주소는 바뀌고 신원은 안 바뀝니다.
+같은 프로세스 안에서, 프로그램이 도는 도중에 이미 어긋납니다.
+
+그래서 .NET은 RuntimeHelpers.GetHashCode를 따로 두고, 
+주소를 고정하려면 fixed나 GCHandle이 필요합니다.
+
+"주소는 신원의 가능한 한 표현일 뿐, 신원 그 자체는 아니다"
+
+---
+
+하나의 신원에 주소는 여러 개 붙을 수 있습니다
+
+네이티브 포인터 — 이 프로세스, 다음 이동 전까지
+instanceID (이제 EntityId) — 이 세션 동안
+fileID — 이 파일이 다시 써질 때까지
+GUID + fileID — 이 프로젝트, .meta가 살아 있는 한
+
+---
+
+신원이 아예 필요 없는 것
+
+Vector3 (1,2,3) 둘은 같은 값이고, 구분할 이유가 없습니다
+인라인 직렬화는 "이건 신원이 필요 없는 데이터다"라는 선언입니다
+
+문제는 신원이 필요한데 시스템이 값 의미론만을 줄 때
+
+---
+---
+---
+
+JsonUtility
+
+필드만. 프로퍼티 안 됨
+Dictionary, 다차원 배열, 중첩 컨테이너 안 됨
+인라인 null 표현 없음
+최상위는 반드시 클래스나 구조체. 배열이나 int를 직접 넘길 수 없음
+MonoBehaviour·ScriptableObject는 FromJsonOverwrite만 가능
+
+---
+
+JsonUtility는 JSON 라이브러리가 아닙니다. 
+유니티 네이티브 직렬화기에 JSON 출력구를 붙인 것
+
+객체를 표준 유니티 직렬화기에 넘기면, Inspector에서와 동일한 규칙과 제한이 적용된다. 
+필드만 직렬화되고, Dictionary<> 같은 타입은 지원하지 않는다.
+
+바꾼 건 출력 형식뿐이고, 데이터 모델은 그대로입니다.
+
+최상위에 배열이나 primitive를 못 넘깁니다
+루트는 반드시 필드를 가진 클래스나 구조체여야
+
+프로퍼티는 무시됩니다. 
+그래서 프로퍼티 기반 DTO를 쓰는 웹 API 응답은 그대로 매핑되지 않습니다
+
+---
+---
+---
+
+직접 해야 하는 일 = 주소 공간 설계
+
+(a) 저작 데이터를 가리키는 주소 — 아이템 정의, 프리팹, 스킬 테이블
+이건 이미 프로젝트 전역 주소가 있는 것들
+Addressables 주소를 쓰거나, 
+ScriptableObject에 직접 부여한 문자열 id를 두고 레지스트리로 모으는 방식
+
+GUID를 그대로 쓰고 싶어지지만 에디터 개념이라 런타임 조회 API가 없고, 프로젝트 경계를 넘으면 깨집니다
+
+---
+
+(b) 씬 인스턴스를 가리키는 주소 — 이 상자, 저 문, 저 NPC
+
+instanceID는 세션 한정이고, 
+6.4의 EntityId 문서는 "ToString을 직렬화에 쓰지 마라, 
+int로 캐스팅하지 마라, 정렬로 생성 순서를 추정하지 마라"를 금지 사항으로 올려놨습니다
+
+그래서 직접 붙여야 합니다
+씬에 배치된 오브젝트에는 
+GUID 컴포넌트를 달아 에디터에서 한 번 굽고
+
+---
+
+BinaryFormatter는 쓰지 않습니다. 
+
+.NET 8에서 obsolete, 9에서 제거됐습니다
+
+보안
+"생성할 타입 정보를 입력 데이터가 들고 있는 역직렬화기"는 원리적으로 취약합니다
+
+---
+
+엔진이 도와주지 않는 영역
+
+경로는 Application.persistentDataPath
+플랫폼마다 실제 위치가 다름
+
+직전 세이브를 백업 슬롯으로 남기기
+
+로컬 세이브의 변조는 원칙적으로 막을 수 없습니다
+체크섬은 캐주얼한 조작만 걸러냅니다
+
+콘솔은 파일 API가 아니라 플랫폼 세이브 API를 쓰고 인증 요건이 붙습니다
