@@ -1,0 +1,170 @@
+2005–2013
+
+Unity는 3D 엔진으로 출발했고 2D 지원이 없었습니다
+
+Quad/Plane에 텍스처를 붙이고 UV를 직접 스크롤 → 수동 스프라이트 애니메이션
+Orthographic Camera + Z축 정렬로 깊이 흉내
+서드파티 에셋에 의존: 2D Toolkit, SpriteManager, Ex2D
+
+---
+
+네이티브 2D의 탄생 (2013, Unity 4.3)
+
+Sprite / SpriteRenderer
+Texture를 Sprite 임포트 모드로 가져오고, 
+피벗·경계를 에디터에서 설정
+
+Sprite Editor
+스프라이트 시트 슬라이싱, 
+피벗, 
+9-slice 보더
+
+Sprite Packer
+자동 아틀라싱 
+(런타임 드로우콜 절감)
+
+---
+
+Box2D 통합
+Physics2D 모듈
+기존 PhysX 기반 3D 물리와 완전히 분리된 별도 시뮬레이션 월드
+
+PolygonCollider2D
+스프라이트 알파에서 콜라이더 자동 생성
+
+2D 물리는 3D 물리와 섞이지 않는다
+Rigidbody2D와 Rigidbody는 서로를 인식하지 못한다
+
+Box2D와 PhysX가 별개의 라이브러리이기 때문
+
+---
+
+워크플로 확장기 (2017)
+
+Sprite Atlas
+구식 Sprite Packer를 대체
+아틀라스가 에셋이 되어 버전 관리·변형(Variant)·런타임 late-binding이 가능해짐
+
+Sprite Mask
+스텐실 기반 마스킹
+
+Tilemap
+Grid → Tilemap → TilemapRenderer 계층
+TileBase를 상속하는 확장 가능한 타일 개념(ScriptableObject)이 핵심
+RuleTile, AnimatedTile 등이 여기서 파생
+
+Anima2D
+Unity가 인수해 무료 배포한 서드파티 본 애니메이션 도구
+
+---
+
+Package Manager(UPM) 가 2017.2에 내부 도입되어 2018.1에 사용자에게 공개됩니다
+이전까지 모든 기능은 에디터 바이너리에 하드코딩되어 있었고, 
+새 기능은 에디터 버전 업그레이드를 기다려야 했습니다
+
+---
+
+UPM 이후
+
+엔진 코어는 얇아지고, 기능은 패키지 단위로 독립 버전 관리·독립 릴리스
+
+com.unity.modules.* — 엔진 내장 모듈(빌드에서 제외 가능)
+2D 물리는 com.unity.modules.physics2d
+
+com.unity.2d.*
+별도 배포되는 2D 기능군
+
+2D Pixel Perfect
+2D Animation: 스프라이트 본 리깅, 웨이트 페인팅, IK
+2D SpriteShape: 스플라인 기반 지형/유기적 형태
+2D PSD Importer: 포토샵 레이어를 스프라이트+리그로 임포트
+2D Tilemap Extras — RuleTile, IsometricRuleTile 
+
+---
+
+렌더링 파이프라인 재설계
+
+2018.1 — SRP와 LWRP 공개
+
+SRP(Scriptable Render Pipeline) Preview 도입
+C#과 셰이더로 렌더링 순서와 패스를 구성하는 기반 API
+
+Unity가 미리 구현한 SRP 두 종류
+LWRP: Lightweight Render Pipeline
+HDRP: High Definition Render Pipeline
+
+LWRP는 모바일·XR·저사양 하드웨어를 겨냥한 단일 패스 Forward Renderer
+
+---
+
+Feature Set — 패키지 파편화에 대한 대응 (2021.2)
+메타 패키지 개념
+큐레이션 단위
+
+---
+
+2D Aseprite Importer
+픽셀아트 워크플로가 Photoshop 중심에서 Aseprite 중심으로 이동한 현실을 반영
+
+2D Common / 2D Tooling
+패키지 간 중복 코드를 공통 레이어로 추출
+
+SpriteSkin의 DOTS화
+2D Animation의 스킨 디포메이션이 Burst/Job System 기반으로 재작성
+
+---
+
+물리 엔진의 세대교체 (Unity 6.3, 2025)
+
+12년간 유지되던 Box2D v2가 Box2D v3로 교체
+
+멀티스레드 시뮬레이션, 결정성(determinism) 개선
+에디터·런타임 물리 시각 디버깅
+
+UnityEngine.LowLevelPhysics2D
+GameObject/Component를 거치지 않고 물리 바디를 생성·제어하는 저수준 API
+
+---
+
+Pixels Per Unit (PPU)
+
+Unity 씬은 항상 3D이고 단위는 meter입니다
+2D에서는 PPU가 "픽셀 → 월드 단위" 환산율을 정의
+
+1 world unit = PPU pixels
+
+---
+
+애니메이션 스택
+
+Animator / Animation Clip
+
+스프라이트 시트 프레임 애니메이션
+Clip이 SpriteRenderer의 sprite 프로퍼티를 키프레임으로 교체
+
+---
+
+2D Animation (SpriteSkin)
+
+본 기반 스키닝
+Skinning Editor에서 본·웨이트 편집
+IK Solver(CCD / FABRIK / Limb) 제공
+최근 버전은 Burst/Job 기반
+
+---
+
+Solver
+
+CCD
+Cyclic Coordinate Descent
+끝 관절부터 루트 방향으로 하나씩 회전하며 오차를 줄임
+꼬리, 촉수, 여러 관절
+
+---
+
+FABRIK
+Forward And Backward Reaching Inverse Kinematics
+뼈 위치를 Target→Root, Root→Target 순서로 반복 보정
+긴 체인, 실시간 조작
+
+---
