@@ -1,0 +1,961 @@
+Legacy Particle System (Unity 1.x ~ 3.4)
+
+Particle Emitter
+Particle Animator — 시간에 따른 처리
+Particle Renderer — billboard / stretched 렌더링
+보조: WorldParticleCollider
+
+---
+
+Shuriken (Unity 3.5, 2012)
+
+curve and gradient-based modular editor
+with hierarchies and sequencing capabilities
+
+ParticleSystem + ParticleSystemRenderer
+
+기능이 module stack 으로 분해 
+(Emission, Shape, Velocity over Lifetime, Color over Lifetime, Collision, Sub Emitters …)
+
+모든 파라미터가 MinMaxCurve / MinMaxGradient 로 표현
+constant / curve / random between two 를 한 타입으로 흡수
+
+CPU 시뮬레이션, deterministic playback
+
+---
+
+Legacy 정리와 Shuriken 재투자 (5.4 ~ 5.6, 2016)
+
+Noise module — turbulence, quality 설정
+Lights module — particle 일부에 real-time light 부착
+Trails module — ribbonized trail
+Custom vertex stream / Custom Data
+Main module 프로퍼티의 전면적인 C# 노출 (ParticleSystem.MainModule 등장)
+
+---
+
+CPU 한계 밀어내기 (2018.1)
+
+GPU Instancing for Mesh particles
+Built-in RP 에서 mesh particle 을 instancing 으로 렌더
+
+C# Job System 통합
+ParticleSystemJobs 네임스페이스, 
+IJobParticleSystem / IJobParticleSystemParallelFor
+particle 배열을 NativeArray 로 받아 worker thread 에서 직접 수정
+시뮬레이션은 여전히 CPU 지만 멀티코어로 확장
+
+---
+
+Visual Effect Graph (2018.3 preview ~ )
+
+완전히 다른 GPU 기반 시스템을 새로 만든 것이 VFX Graph
+
+compute shader 로 시뮬레이션 → 수백만 particle 규모
+Shader Graph 와 같은 GraphView 노드 에디터
+Context 파이프라인 구조
+
+---
+
+Particle System (Shuriken): CPU, 수천 개 규모
+Unity physics 와 직접 충돌, C# 에서 particle 배열까지 read/write 완전 접근
+
+VFX Graph: GPU, 수백만 개 규모
+충돌은 직접 정의한 요소(depth buffer, SDF 등) 기준
+
+---
+
+Niagara 는 하나의 시스템이 두 개의 sim target 을 갖는 구조
+Unity 는 두 개의 서로 다른 세대의 시스템이 각각 하나의 sim target 을 갖는 구조
+
+---
+
+Niagara (UE 5.6)                               Unity 6
+┌ NiagaraSystem                                ┌ ParticleSystem (Shuriken)
+│  System/Emitter script → 항상 CPU            │   고정 module stack, CPU 전용
+│  ├ Emitter A : SimTarget = CPUSim            │   (GPU sim 경로 자체가 없음)
+│  └ Emitter B : SimTarget = GPUComputeSim     │
+│    ↑ 같은 module 그래프, 드롭다운 하나       └ VisualEffect (VFX Graph)
+└                                                  Spawn → CPU
+                                                   Initialize/Update/Output → GPU
+
+---
+
+Shuriken 은 GPU sim 경로가 아예 없고, 
+ParticleSystemJobs 로 worker thread 에 퍼뜨리는 것이 확장의 끝이다
+
+2018.1 의 GPU Instancing 은 mesh particle 의 렌더링만 instancing 하는 것이지 
+시뮬레이션과 무관
+
+반대로 VFX Graph 는 compute shader + SSBO 가 필수라 CPU fallback이 없다
+
+---
+
+트레이드오프의 성질
+규모 ↔ 제어권
+
+CPU: 수천 개, physics 충돌 직접 사용, particle 배열까지 C# read/write 완전 접근
+GPU: 수백만 개, 충돌은 depth buffer / SDF 같은 근사, 스크립트 접근은 property·event 수준
+
+---
+
+/** Bounds are calculated per frame (Only available for CPU emitters). */
+Dynamic,
+/** Bounds are set from the emitter's fixed bounds. */
+Fixed,
+/** Bounds will be set from the script using the Emitter Properties Data Interface, or blueprint. */
+Programmable
+
+if the particle simulation is done on the GPU, 
+the system cannot read how big the effect is.
+
+VFX Graph 에서 Initialize context 에 bounds 를 지정해야 하는 것도 동일한 원인
+GPU 에 있는 데이터를 CPU 의 culling 이 모른다는 것
+
+---
+
+GPU sim 이라도 spawn 은 CPU
+
+"System and Emitter script execution" 은 CPU 에서 돌며 game thread 와 상호작용하는 고정 비용
+GPU 로 넘어가는 건 Particle script 뿐
+
+---
+
+Niagara 는 emitter 단위 드롭다운이라 
+한 System 안에 CPU emitter 와 GPU emitter 를 섞을 수 있다.
+
+CPU emitter 가 gameplay hit 를 처리하고 
+GPU emitter 가 대량 디테일을 뿌리는 조합
+
+---
+
+Niagara 에서 CPUSim → GPUComputeSim 전환은 
+같은 저작물을 재컴파일하는 것
+
+Unity 에서 Shuriken → VFX Graph 는 변환 경로가 존재하지 않는다
+
+---
+
+Shuriken
+닫힌 module 집합. Noise, Trails, Lights… 목록에 없는 연산은 만들 수 없다
+
+VFX Graph
+노드 그래프 + Custom HLSL, Operator 조합 자유
+
+---
+
+이 이펙트가
+gameplay 와 데이터를 주고받나? (피격 판정, 사운드 트리거, 물리 반응)
+모바일/OpenGL ES 를 타겟에 포함하나?
+→ Shuriken
+
+그 외 (대량, 비주얼 스펙터클, 아트 주도)
+VFX Graph
+
+---
+
+Texture Sheet Animation + flipbook blending
+시뮬레이션(Houdini, EmberGen, Blender) 결과를 시트로 구워 재생하는 파이프라인
+
+Sub Emitters
+birth/collision/death 시점에 다른 시스템 발사
+
+Custom Data module + Custom Vertex Streams
+per-particle 데이터를 shader 로 넘기는 통로
+Shader Graph 로 파티클 머티리얼을 만들 때 확장 포인트
+
+Force Field
+ParticleSystemForceField 컴포넌트를 씬에 두고
+External Forces module 로 받는 구조
+바람·소용돌이를 여러 시스템이 공유
+
+---
+
+Simulation Space
+Local 인지 World 인지
+캐릭터를 따라와야 하는 오라가 뒤에 남거나, 
+남아야 할 연기가 따라오는 버그
+
+---
+
+Vulkan/Metal 되는 현대 기기에서 VFX Graph 는 돈다
+GLES3 폴백 기기가 타겟에 하나라도 있으면, 그 이펙트는 어차피 Shuriken 버전이 필요
+
+---
+
+Fill rate
+GPU가 일정 시간 동안 처리할 수 있는 화면 픽셀(fragment) 양
+
+fill workload
+≈ 화면 픽셀 수
+× overdraw 횟수
+× pixel shader 복잡도
+
+---
+
+1080p
+
+1920 × 1080
+      ↓
+약 2백만 pixels
+
+연기 10겹
+      ↓
+최대 약 2천만 fragment 처리
+      ↓
+각 fragment마다
+texture sample
+shader 실행
+alpha 계산
+blend
+
+---
+
+Bandwidth
+
+와 메모리 사이에서 초당 얼마나 많은 데이터를 운반할 수 있느냐
+
+---
+
+Fill rate 병목
+
+GPU shader cores
+████████████████████  ← 픽셀 처리 자체가 꽉 참
+
+---
+
+Bandwidth 병목
+
+GPU  ←════════════→  LPDDR
+          ↑
+       이 통로가 꽉 참
+
+---
+
+L0  공식 문서 / API XML                       ← 표면
+L1  UnityCsReference (GitHub, 버전별 브랜치)   ← 엔진의 C# 레이어 + 에디터 전부
+L2  패키지 소스 (URP/HDRP/VFX Graph/Shader Graph) ← 전부 C# 원본, 컴파일러까지
+L3  셰이더 (built-in shaders, CGIncludes, 생성된 compute shader)
+L4  il2cpp/libil2cpp — 에디터 설치본에 C++ 원본이 동봉돼 있음
+L5  네이티브 코어 (Shuriken 시뮬레이션, VFX 디스패치)  ← 닫힘
+
+---
+
+ForceField 옆에 ForceFieldManager 가 따로 있다는 건 
+force field 가 전역 레지스트리로 관리된다는 뜻이고
+
+GeometryJob 이 독립 헤더라는 건 
+렌더 지오메트리 생성이 시뮬레이션과 분리된 별도 job 계층이라는 뜻이다
+
+---
+
+overdraw
+한 화면 픽셀이 한 프레임에서 몇 번 다시 그려졌는가
+
+카메라
+  ↓
+연기 A
+연기 B
+불꽃 C
+캐릭터
+배경
+
+이 픽셀의 overdraw 수준은 대략 5
+반투명 파티클에서는 각 층이 최종 색에 기여하므로 
+여러 fragment를 실제로 shading하고 blend하게 됩니다
+
+---
+
+화면을 얼마나 넓게 덮는가
+        ×
+같은 픽셀 위에 몇 장이 겹치는가
+
+---
+
+Unity 6 의 default player loop
+
+PreLateUpdate
+  Physics2DLateUpdate / PhysicsLateUpdate
+  DirectorUpdateAnimationBegin → LegacyAnimationUpdate → DirectorUpdateAnimationEnd
+  UIElementsUpdatePanels
+  UpdateNetworkManager
+  ParticleSystemBeginUpdateAll        ★ Shuriken 시작
+  ScriptRunBehaviourLateUpdate        ← 사용자 LateUpdate
+  ConstraintManagerUpdate
+
+PostLateUpdate
+  UpdateRectTransform / PlayerUpdateCanvases
+  UpdateAudio / UpdateVideo
+  VFXUpdate                           ★ VFX Graph 의 CPU 측
+  ParticleSystemEndUpdateAll          ★ Shuriken 종료
+  EndGraphicsJobsAfterScriptLateUpdate
+  UpdateAllRenderers
+  FinishFrameRendering                → 이 뒤가 SRP 카메라 루프
+
+---
+
+(1) Shuriken 은 프레임을 가로지르는 fence
+Begin 과 End 가 쌍으로 있고
+그 사이에 사용자 LateUpdate 가 들어간다
+
+애니메이션 평가가 끝난 뒤 시작한다. 
+emitter 의 최종 트랜스폼을 알아야 하니 필연적 배치
+
+당신의 LateUpdate 가 도는 동안 파티클 job 은 이미 날아가는 중
+여기서 GetParticles() 를 호출하면 그 job 을 강제로 기다리게 된다
+
+---
+
+VFXUpdate 는 별도 슬롯이지만 여기서 도는 건 GPU 시뮬레이션이 아니다
+spawn machine, expression 평가, 배치 관리, 이벤트 처리 같은 CPU 측 작업
+
+---
+
+VFX Graph 의 실제 시뮬레이션은 player loop 에 없다
+카메라 렌더 루프 안에 있다
+
+UniversalRenderPipeline
+카메라 준비 단계에서 VFXManager.PrepareCamera(camera, cameraXRSettings)
+base camera, overlay camera 각각
+
+즉 VFX 시뮬레이션은 렌더 커맨드 스트림의 일부이며, 
+카메라마다 돌고, 컬링 결과에 종속된다
+
+---
+
+Shuriken   : 게임 로직 시간축 | main thread + job worker | 프레임당 1회 | 카메라 무관
+VFX Graph  : 렌더 시간축      | render thread + GPU      | 카메라당     | 컬링 결과에 종속
+
+카메라가 둘이면 VFX 는 준비가 두 번 돌고, 화면 밖이면 아예 안 돈다
+
+---
+
+VisualEffectAsset          컴파일된 그래프
+VisualEffect (Component)   exposed property, SendEvent, GetParticleSystemInfo
+VFXManager (네이티브 싱글턴, StaticAccessor "GetVFXManager()")
+VFXRenderer + 네이티브 Systems
+
+VFXManager 가 전역 싱글턴이라는 게 중요하다
+Shuriken 은 시스템마다 독립적으로 도는데
+VFX 는 매니저가 인스턴스를 batch 로 묶어서 한꺼번에 dispatch 한다
+
+---
+
+GameObject
+ ├ ParticleSystem                  시뮬레이션 객체
+ │   └ 25개 module                 값이 아니라 핸들
+ └ ParticleSystemRenderer          Renderer 파생            (ParticleSystemRenderer.h)
+
+씬 전역
+ ├ ParticleSystemForceField        컴포넌트                 
+ └ ParticleSystemForceFieldManager 전역 레지스트리          
+
+ 내부
+ └ ParticleSystemGeometryJob       pre-mapped 버퍼에 지오메트리 생성
+
+---
+
+module 은 닫힌 파이프라인 단계다. 순서가 엔진에 고정돼 있고 사용자가 끼워 넣을 수 없다
+시뮬레이션과 지오메트리 생성이 분리돼 있다
+
+렌더러가 평범한 Renderer 다. sorting layer, light probe, motion vector, 배칭 같은 
+엔진 렌더 인프라를 그대로 탄다
+
+---
+
+CPU 는 modified Harvard architecture
+
+
+                         ┌─ ITLB ─ L1i ─┐
+core / MMU ──────────────┤              ├─ L2 ─ L3 ─ DRAM
+                         └─ DTLB ─ L1d ─┘
+                         
+L1i / L1d : 물리적으로 분리된 별도 SRAM 배열, 별도 포트, 별도 TLB(ITLB/DTLB)
+L2 이하   : 통합. 명령어와 데이터가 같은 공간을 공유
+
+---
+
+명령어 fetch 는 L1d 를 건드리지 않는다
+
+SoA 배열을 훑는 루프가 돌 때 명령어는 L1i 에서, 데이터는 L1d 에서 따로 온다. 
+서로 evict 하지 않는다
+
+---
+
+명령어 쪽에는 L1i 앞에 한 겹이 더 있다
+µop cache
+타이트한 루프는 디코드된 µop 상태로 재생되기 때문에 L1i 조차 건드리지 않는다
+SoA 순회 같은 전형적인 hot loop 는 명령어 측 메모리 트래픽이 사실상 0
+
+---
+
+TLB = Translation Lookaside Buffer
+가상 주소 → 물리 주소 변환 결과를 저장
+
+최근 사용한 page translation의 cache
+
+---
+
+프로그램이 메모리를 읽을 때 CPU가 보는 주소는 보통 가상 주소
+
+CPU가 요청
+virtual address
+0x0000_7ABC_1234
+       │
+       ▼
+      TLB
+       │
+       │  "이 virtual page는
+       │   physical page 0x83F...에 있음"
+       ▼
+physical address
+       │
+       ▼
+L1 / L2 / L3 / DRAM
+
+---
+
+virtual address
+      │
+      ▼
+     TLB
+   hit │ miss
+       │   └────→ Page Table Walk
+       │              │
+       │         DRAM의 page table 조회
+       │              │
+       │         VA → PA 발견
+       │              │
+       │         TLB에 저장
+       ▼              ↓
+physical address ←────┘
+
+---
+
+Data hazard
+    데이터 의존성 때문에 충돌
+
+Control hazard
+    branch 등 실행 흐름 때문에 충돌
+
+Structural hazard
+    하드웨어 자원의 개수/구조 때문에 충돌
+
+---
+
+예를 들어 CPU에 곱셈기가 하나 있고 같은 순간에 두 연산이 그것을 필요로 해도 structural hazard
+
+Instruction A ──→ multiplier
+                       ↑
+Instruction B ─────────┘
+
+multiplier 1개
+→ 동시에 두 작업을 받을 능력이 없으면 한쪽 대기
+
+---
+
+예를 들어 512 KB를:
+
+256 KB instruction
+256 KB data
+
+로 고정하면 프로그램이 어느 순간
+
+instruction working set : 80 KB
+data working set        : 400 KB
+
+를 필요로 할 때 instruction 쪽 공간 일부가 남고 data 쪽은 압박을 받습니다
+
+---
+
+Unified 512 KB에서는:
+
+┌─────────────────────────────────────┐
+│ instructions │        data          │
+└─────────────────────────────────────┘
+               512 KB 공유
+
+현재 workload에 따라 공간을 유연하게 사용할 수 있습니다.
+
+---
+
+footprint
+
+프로그램의 code가
+cache라는 바닥 위에
+
+████████████████████████
+← 이만큼 자리를 차지함 →
+
+---
+
+과도한 인라인은 같은 함수의 기계어를 여러 호출 지점에 복제할 수 있습니다
+함수 호출을 제거하고 추가 최적화를 가능하게 합니다. 동시에 code size가 증가할 수 있습니다
+
+A + Foo
+B + Foo
+C + Foo
+    ↑
+Foo 코드가 여러 곳에 펼쳐짐
+
+---
+
+Loop unrolling
+
+for (...)
+    Process();
+
+Process();
+Process();
+Process();
+Process();
+
+---
+
+megamorphic virtual call
+
+obj->Update();
+
+실제 타입이
+Projectile::Update
+Vehicle::Update
+Boss::Update
+...
+
+CPU가 짧은 코드 영역에 머물기 어려워집니다
+실행 중 필요한 코드 working set이 넓게 퍼집니다
+
+---
+
+Tile-based GPU
+Tile-Based Deferred Rendering(TBDR)
+화면을 작은 사각형 tile로 쪼개서 tile 단위로 처리하는 GPU 구조
+Apple GPU와 Arm Mali 계열
+
+---
+
+예를 들어 1920×1080 화면을 작은 블록으로 나눕니다
+
+┌────┬────┬────┬────┐
+│Tile│Tile│Tile│Tile│
+├────┼────┼────┼────┤
+│Tile│Tile│Tile│Tile│
+├────┼────┼────┼────┤
+│Tile│Tile│Tile│Tile│
+└────┴────┴────┴────┘
+
+먼저 각 triangle이 어느 tile에 걸치는지 분류합니다
+Triangle A ──→ Tile 3, 4, 7
+Triangle B ──→ Tile 7
+Triangle C ──→ Tile 1, 2
+
+Arm은 이 단계를 screen-space tile assignment라고 설명합니다
+각 primitive를 vertex shading한 뒤, 화면에서 덮는 tile에 배정합니다
+
+---
+
+그다음 한 tile을 GPU 내부의 아주 빠른 작은 메모리로 가져와 처리합니다
+
+┌─────────────────┐
+│   Tile Memory   │
+│                 │
+│  작은 화면 조각 │
+└─────────────────┘
+    
+rasterize
+depth test
+shading
+blending
+    ↓
+tile 완성
+    ↓
+DRAM에 저장
+
+---
+
+모바일 GPU에서 이 구조가 매력적
+
+외부 LPDDR 접근
+      ↓
+높은 전력 소비
+높은 latency
+제한된 bandwidth
+
+vs
+
+가능한 작업을
+on-chip tile memory에서 처리
+          ↓
+DRAM traffic 감소
+전력 소비 감소
+
+---
+
+DDR = Double Data Rate
+SDRAM = Synchronous Dynamic Random-Access Memory
+
+---
+
+클럭 신호를 보면 한 주기에 두 개의 edge가 있습니다
+
+clock
+
+      ┌─────┐     ┌─────┐
+──────┘     └─────┘     └────
+      ↑     ↓     ↑     ↓
+    rising falling
+
+---
+
+초기 SDR SDRAM의 기본적인 발상은 한 clock cycle당 한 번의 데이터 전송이었습니다
+
+SDR = Single Data Rate
+
+      ┌─────┐     ┌─────┐
+──────┘     └─────┘     └────
+      ↑           ↑
+     DATA        DATA
+
+→ clock당 1 transfer
+
+---
+
+DDR은 rising edge와 falling edge 양쪽을 활용합니다.
+
+DDR = Double Data Rate
+
+      ┌─────┐     ┌─────┐
+──────┘     └─────┘     └────
+      ↑     ↓     ↑     ↓
+     DATA  DATA  DATA  DATA
+
+→ clock당 2 transfers
+
+---
+
+LPDDR
+Low-Power Double Data Rate
+폰의 메인 DRAM
+
+주요 목표가 전력 효율
+
+---
+
+GDDR = Graphics Double Data Rate
+높은 memory bandwidth를 목표로 설계
+
+---
+
+CPU
+ │
+ │ Memory Channel
+ │
+ ▼
+┌───────────────┐
+│ DIMM          │
+│               │
+│ DRAM DRAM     │
+│ DRAM DRAM     │
+└───────────────┘
+
+DIMM = Dual In-line Memory Module
+
+흔히 말하는 데스크톱용 “램 한 장”이 DIMM
+여러 DRAM 칩을 작은 PCB 하나에 묶어
+CPU의 memory controller에 연결합니다
+
+---
+
+램 한 장
+
+┌───────────────────────────────┐
+│ ■ ■ ■ ■ ■ ■ ■ ■   ← DRAM 칩
+│                               │
+└─|||||||||||||||||||||||||||||─┘
+
+---
+
+Burst Length, 줄여서 BL
+
+READ/WRITE 명령 한 번을 내린 뒤 연속해서 몇 번의 data transfer를 수행하는가
+
+DRAM에 주소 X에서 1 byte만 주세요
+식으로 매번 명령을 보내는 방식은 비효율적입니다.
+
+한 번 읽기 시작했으면 주변 데이터를 연속으로 흘려보냅니다.
+DDR5에서는 기본 burst length가 BL16으로 증가했습니다
+
+---
+
+Channel은 Memory Controller와 DRAM 사이의 통신 경로
+
+┌────────────────────┐
+│ Memory Controller  │
+└───┬─────────────┬──┘
+    │             │
+ Channel A     Channel B
+    │             │
+    ▼             ▼
+ DIMM A         DIMM B
+
+---
+
+두 channel이 독립적으로 움직이면
+dual-channel memory
+
+Channel A ──→ memory request A
+Channel B ──→ memory request B
+
+        동시에 가능        
+
+---
+
+모바일 TBDR
+
+끄고 시작할 것들:
+
+Soft Particles — depth texture 를 요구한다. 모바일에서 추가 pass 값어치가 없다
+Collision / Trigger module — per-particle 물리. 퍼즐에서 쓸 일이 거의 없다
+
+---
+
+배칭이 깨지는 지점을 알기
+
+파티클 시스템은 같은 material 이고 정렬 순서상 인접할 때만 묶인다
+사이에 UI 나 다른 sortingOrder 의 스프라이트가 끼면 그 지점에서 배치가 갈린다
+
+타일 색깔마다 material 을 만드는 순간 배칭이 색 수만큼 쪼개진다
+색은 startColor(위 코드) 나 Custom Data 로 넣는다
+
+---
+
+퍼즐은 "연출이 끝나야 다음 로직"이 흔하다
+
+정확히 도착해야 하는 것은 파티클로 만들지 않는다
+점수 아이콘이 HUD 카운터로 날아가 정확히 착지하는 연출은 tween 이어야 한다
+
+파티클 시스템에는 "도착"이라는 개념이 없고
+개별 파티클의 종료를 알려주는 콜백도 없다
+
+StopAction.Callback 은 시스템 전체가 멈춘 시점이지 파티클 하나의 수명이 아니다
+
+---
+
+레시피
+
+타일 pop (매치 소멸) — 공유 emitter
+연쇄 낙하 — 낙하 자체는 tween 이니 파티클은 착지 순간의 먼지 한 방만
+
+특수 타일 (라인/폭탄) — Render Mode를 Stretched Billboard 로 두고 방향은 velocity 로 만든다
+lifetime 을 아주 짧게(0.2s) 잡아 화면 커버리지를 억제
+
+승리 confetti — 시스템 하나, Burst 80~150 한 방.
+
+---
+
+측정
+
+Frame Debugger — 배치가 어디서 끊기는지
+Scene view → Shading Mode → Overdraw
+
+---
+
+Shuriken 
+
+컴포넌트
+  ParticleSystem                    시뮬레이션 본체
+  ParticleSystemRenderer            렌더링 (Renderer 파생)
+  ParticleSystemForceField          씬에 놓는 힘 필드
+
+ParticleSystem 안쪽 (nested)
+  MainModule … CustomDataModule     23개 module struct
+  Particle                          파티클 하나
+  EmitParams                        
+  MinMaxCurve / MinMaxGradient      모든 수치 프로퍼티의 타입
+  Burst                             버스트 정의
+  PlaybackState / Trails / ColliderData
+
+---
+
+ParticleSystemRenderer
+  정렬, material, render mode, vertex stream
+
+---
+
+module 은 매번 새로 만들어지는 struct 핸들
+
+public MainModule main { get { return new MainModule(this); } }
+
+접근할 때마다 새 struct 를 만든다
+그 struct 가 들고 있는 건 ParticleSystem 참조 하나
+
+---
+
+재생 제어 — withChildren 함정
+
+public void Play(bool withChildren = true);
+public void Pause(bool withChildren = true);
+public void Stop(bool withChildren = true, ParticleSystemStopBehavior behavior = StopEmitting);
+...
+
+전부 기본값이 withChildren = true 다. 
+자식 GameObject 에 붙은 모든 ParticleSystem 에 재귀 적용된다
+
+---
+
+ParticleSystemStopBehavior
+  StopEmitting — 발사만 멈추고 살아있는 파티클은 수명대로 소멸 (자연스러운 종료)
+  StopEmittingAndClear — 즉시 전부 제거 (풀 반납, 씬 전환)
+
+---
+
+콜백 (MonoBehaviour 메시지)
+
+// ── Collision module 의 Send Collision Messages 를 켜야 호출된다 ──
+void OnParticleCollision(GameObject other)
+{
+    int n = ParticlePhysicsExtensions.GetCollisionEvents(ps, other, _events);
+    // _events[i].intersection / normal / velocity / colliderComponent
+}
+
+// ── Trigger module 에 Collider 를 등록해야 호출된다 ──
+void OnParticleTrigger()
+{
+    int n = ps.GetTriggerParticles(ParticleSystemTriggerEventType.Enter, _inside);
+    // 수정 후 SetTriggerParticles 로 되돌릴 수 있다
+}
+
+---
+
+Vertex Stream 목록에 이미 준비된 값이 아주 많다
+이걸 모르고 CustomData 로 직접 채우는 게 낭비
+
+---
+
+C# struct 는 필드가 0으로 기본 초기화되기 때문에, 
+기본값이 "1회 재생, 확률 100%" 가 되도록 저장 표현을 뒤집은 것
+
+new Burst() 만 해도 말이 되는 값이 나오게 하려는 설계. 
+네이티브 codegen 이름은 MonoBurst.
+
+---
+
+Built-in Particle System
+Shuriken 은 내부 코드네임
+3.5 발표 자료와 초기 문서에 그대로 쓰이면서 커뮤니티 용어로 굳었다
+
+---
+
+cache line + set + way + tag
+
+cache를 set-associative 구조로 구성
+tag RAM과 data RAM을 별도로
+
+Cortex-A73 L1 D-cache는 8-way 또는 16-way set associative
+각 line에는 tag와 valid/coherency 상태가 함께 존재
+
+---
+
+set = 캐시 라인들을 묶어 놓은 그룹
+associative = 그 그룹 안에서 tag를 비교해서 어느 line인지 찾아가는 방식
+
+4-way set associative cache
+하나의 set 에 4 개의 way ( cache line ) 
+
+---
+
+64 byte cache line
+CPU가 0x1234 한 바이트를 읽어도 캐시는 그 주소가 들어 있는 64 B 덩어리를 가져옵니다.
+
+주소
+0x0000  ─┐
+         │ 64 B   ← cache line 하나
+0x003F  ─┘
+
+0x0040  ─┐
+         │ 64 B   ← 다음 cache line
+0x007F  ─┘
+
+---
+
+32 KiB, 8-way, 64 B line
+
+전체 용량 = 32 KiB
+line 크기 = 64 B
+
+32 KiB / 64 B
+= 512 cache lines
+
+8-way이므로
+
+512 / 8
+= 64 sets
+
+---
+
+여러 주소가
+동일한 Cache Set 17로 매핑될 수 있음
+
+Set 17, Way 3
+
+┌─────────────────────────────┐
+│ 64 bytes의 데이터           │
+└─────────────────────────────┘
+
+이 데이터가 RAM 주소 어디에서 왔지?
+
+그 답을 기록하는 것이 tag
+이 cache line의 원래 메모리 주소를 식별하는 주소의 상위 부분
+
+---
+
+private             같은 타입 안에서만
+protected           같은 타입 + 파생 타입
+internal            같은 assembly 안에서만
+protected internal  protected 또는 internal        (합집합 — 더 넓다)
+private protected   protected 그리고 internal      (교집합 — 더 좁다)
+public              전부
+file                같은 파일 안에서만  (C# 11+, source generator 용)
+
+---
+
+                       어셈블리 밖에서도 보이나?
+                        아니오              예
+                   ┌───────────────────┬───────────────────┐
+ 파생 타입에만?  X │ internal          │  public           │
+                   ├───────────────────┼───────────────────┤
+                 O │ private protected │  protected        │
+                   └───────────────────┴───────────────────┘
+
+---
+
+[다른 어셈블리 · 비파생]          [다른 어셈블리 · 파생]
+  ✗ private                        ✗ private
+  ✗ private protected              ✗ private protected
+  ✗ internal                       ✗ internal
+  ✗ protected                      O protected
+  ✗ protected internal             O protected internal
+  O public                         O public
+
+---
+
+[같은 어셈블리 · 비파생]          [같은 어셈블리 · 파생]
+  ✗ private                        ✗ private
+  ✗ private protected              O private protected
+  O internal                       O internal
+  ✗ protected                      O protected
+  O protected internal             O protected internal
+  O public                         O public
+
+---
+
+            public
+              │
+      protected internal          ← 합집합 (∪)
+        ╱          ╲
+internal            protected     ← 서로 비교 불가 (직교)
+        ╲          ╱
+      private protected           ← 교집합 (∩)
+              │
+          private
+          
