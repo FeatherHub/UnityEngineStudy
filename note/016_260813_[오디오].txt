@@ -1,0 +1,1522 @@
+2005–2009 — FMOD wrapper 시대 (Unity 1.x ~ 2.x)
+
+Firelight Technologies의 FMOD
+를 low-level engine으로 들여와 그 위에 얇은 component layer만 얹었다
+
+AudioClip — 데이터
+AudioSource — 재생 주체, 3D 위치·rolloff curve·Doppler
+AudioListener — 귀 (Camera에 붙는 단일 listener)
+
+---
+
+Unity 3.0 (2010) — FMOD 기능의 본격 노출
+Audio Filters – Perfect FMOD-powered ambiance effects with integrated editing
+
+Audio Filter 계열 — Low Pass, High Pass, Echo, Distortion, Chorus, Reverb
+AudioReverbZone — 공간별 reverb preset
+multi-channel / surround 출력
+OnAudioFilterRead — script에서 DSP buffer를 직접 만지는 유일한 통로
+
+Audio Filter는 Unity Pro 전용이었다
+
+---
+
+Unity 5.0 (2015) —  AudioMixer
+
+AudioMixer asset 신설
+mixer group hierarchy, effect chain, VU meter, mixer 간 routing
+send/receive, snapshot + interpolation
+
+Native Audio Plugin SDK
+C/C++로 고성능 custom DSP를 작성해 mixer에 꽂을 수 있게 됨
+
+Audio asset pipeline과 AudioClip backend 전면 재작성
+per-platform compression override, background transcoding
+on-demand audio data loading 
+(Decompress On Load / Compressed In Memory / Streaming)
+
+---
+
+2018–2023 — DSPGraph의 좌초
+
+DOTS 시대에 맞춰 Burst/Job System 위에서 도는 새 audio graph, DSPGraph
+0.1.0-preview.1(2019-02)부터 0.1.0-preview.22(2022-01) 까지 가고 멈췄다
+
+실무는 FMOD Studio / Wwise 같은 middleware로 이주했다
+Unity 내장 audio는 "쓸 수는 있지만 sound designer가 authoring할 도구가 없는" 상태로 5년 넘게 머물렀다
+
+---
+
+Unity 2023.2 → Unity 6 (2024) — Audio Random Container, ARC
+
+수년 만에 나온 authoring 기능
+
+Audio Random Container (ARC)
+clip list + randomization / looping / timed playback 규칙을 asset으로 저장
+"변주가 필요한 소리"를 script 없이 처리
+
+---
+
+AudioResource 추상화 도입
+AudioSource가 AudioClip뿐 아니라 ARC도 동일하게 받아들이도록 한 단계 추가
+
+ARC는 AudioSource.Play / isPlaying 의미가 clip과 미묘하게 달라지는 지점이 있다
+(Manual/Automatic mode, audio cycle 개념)
+
+---
+
+Unity 6.3 → 6.5 (2025–2026)
+
+Scriptable Audio Pipeline (6.3 도입, 6.5에서 확장)
+
+OnAudioFilterRead의 후계
+Burst-compiled C# processor를 audio system의 지정된 지점에 꽂는 framework
+
+Generator — AudioSource 지점에서 sample을 생성
+Root Output — audio engine main output 지점
+
+---
+
+Enhanced Audio Foundation (EAF), HAL
+device 전환 시 안정성과 sample rate conversion 품질을 개선하는 것이 1차 목표
+
+6.3에서 Windows/macOS로 시작해 
+6.5 기준 Windows, macOS, iOS, Android, Xbox에서 opt-in으로 쓸 수 있다
+
+이후 로드맵은 startup 시간 단축, explicit output selection, multi-output, 
+native spatializer·haptics 같은 하드웨어 고유 기능 연동
+
+---
+
+MetaSound의 Trigger나 Animation Notify처럼 
+"클립 안 특정 지점에 marker를 찍고 그 시점에 이벤트를 쏜다" 는 개념
+
+우회
+
+AudioSettings.dspTime + PlayScheduled / SetScheduledEndTime
+the preferred way to stitch AudioClips in music players because it is independent of the frame rate
+
+---
+
+AudioSource.timeSamples polling
+현재 재생 위치를 sample 단위로 읽어 threshold를 넘기면 이벤트를 쏜다
+해상도가 프레임 단위
+60fps면 최대 ~16ms 지연
+
+SFX 트리거로는 충분하고 
+리듬 판정으로는 부족
+
+---
+
+Animation Event
+
+Animation 쪽에는 Notify 대응물이 있다
+AnimationClip에 Event를 찍으면 해당 프레임에 메서드가 호출된다
+
+---
+
+Unity 6.3+ Scriptable Audio Pipeline
+OnAudioFilterRead
+
+sample-accurate가 필요하면 여기까지 내려가야 한다
+OnAudioFilterRead는 audio thread에서 돌기 때문에 안에서 Unity API를 부를 수 없다
+flag만 세우고 main thread에서 소비하는 구조가 강제된다.
+
+Unity 6.3부터의 Scriptable Audio Pipeline은 이 패턴을 정식 API로 승격시킨 것
+
+realtime part가 control part로 message를 보내는 경로가 있어서
+sample X에 도달 → message 발사 → 같은 프레임에 game logic이 수신
+
+MetaSound Trigger의 Unity 버전에 가장 근접
+
+---
+
+Middleware
+FMOD Studio — Event timeline에 named marker를 찍고 callback을 구독한다
+
+콜백은 audio thread에서 온다
+[AOT.MonoPInvokeCallback] 어트리뷰트와 GCHandle 마샬링이 필수
+콜백 안에서 Unity API를 직접 부르면 안 된다
+
+---
+
+Unity built-in
+AudioMixer + Audio Random Container
+
+퍼즐 게임의 오디오 요구는 "짧은 SFX 다량 + 루프 BGM 소수 + stinger 몇 개"
+
+---
+
+middleware로 가야 하는 조건
+
+BGM 박자에 맞춰 연출이 터져야 한다 (리듬 퍼즐, beat-synced 카메라/이펙트)
+콤보 단계에 따라 음악 stem이 쌓이거나 전환되는 인터랙티브 음악
+전담 sound designer가 있고, 프로그래머 없이 스스로 iterate하기를 원한다
+
+---
+
+Import 설정 
+
+짧은 SFX (1초 이하, UI/match/tile)
+Load Type = Decompress On Load
+Compression = ADPCM 또는 PCM
+
+BGM
+Load Type = Streaming
+Compression = Vorbis, quality 60~70%
+
+Force To Mono 를 SFX 전반에 적용
+대부분 mono로 충분하고 용량이 절반
+
+샘플레이트 override로 22~32kHz까지 내려도 
+모바일 스피커에서는 차이가 거의 안 들린다
+
+---
+
+동시 발음수
+퍼즐 게임의 함정
+
+Cascade/combo가 터지면 순간적으로 수십 개가 동시에 재생
+
+Project Settings의 Real Voices / Virtual Voices 조정
+
+AudioSource.priority 를 BGM은 낮게(우선), 잡다한 SFX는 높게
+
+같은 SFX의 최소 재발화 간격(cooldown) 로직 필수
+
+같은 파형이 몇 ms 간격으로 겹치면 phase가 정렬돼 음압이 폭발
+ARC의 pitch randomization이 이 문제를 상당히 완화해준다
+
+---
+
+AudioSettings.Mobile
+
+유저가 게임 내 볼륨을 0으로 하면 StopAudioOutput() 을 호출해 audio output thread를 아예 재운다
+배터리가 눈에 띄게 절약된다
+
+주의사항이 있다 — 출력 정지 중이던 소리는 재개 시 같은 위치에서 이어진다
+게임 로직과 동기가 필요한 소리가 있으면 부적합하다
+
+---
+
+PCM = Pulse Code Modulation
+
+아날로그 파형
+
+      /\
+     /  \      /\
+____/    \____/  \____
+
+시간별 샘플링
+
+      ●
+   ●     ●      ●
+ ●         ●  ●
+●            ●
+
+---
+
+숫자로 저장
+
+Sample 0 =  1203
+Sample 1 =  1348
+Sample 2 =  1570
+Sample 3 =  1492
+...
+
+---
+
+stereo, 44.1 kHz, 16-bit PCM이면 대략
+
+44,100 samples/s
+× 2 byte
+× 2 channels
+
+≈ 176 KB/s
+≈ 10.6 MB/min
+
+---
+
+ADPCM = Adaptive Differential Pulse Code Modulation
+
+Adaptive
+= 상황에 맞춰 예측 규칙을 조절
+
+Differential
+= 실제 값 대신 앞 sample과의 차이를 중심으로 저장
+
+Pulse Code Modulation
+= PCM 계열의 샘플 표현
+
+---
+
+ADPCM은 파형이 연속적이라는 성질을 이용합니다.
+
+첫 값 1000
+
+이후 변화량
++12
++8
+-3
++13
+
+---
+
+실제 ADPCM은 단순 delta 저장보다 한 단계 더 나갑니다
+
+이전 sample들을 이용해 다음 값을 예측하고
+작은 prediction error를 압축해서 저장합니다
+
+---
+
+Adaptive
+
+잔잔한 구간
+1000 1002 1001 1003
+→ 작은 step
+
+급격한 구간
+1000 1800 700 2000
+→ 큰 step
+
+---
+
+PCM
+→ 아주 짧고 자주 재생되는 소리
+→ CPU 비용 최소화가 중요할 때
+
+ADPCM
+→ 짧거나 중간 길이의 SFX
+→ PCM 메모리는 부담되고
+   Vorbis/MP3 디코딩 비용도 피하고 싶을 때
+
+---
+
+stinger
+
+콤보 x3 / x5 / x7 마다 반음씩 올라가는 짧은 프레이즈
+레벨 클리어 팡파레
+남은 수 3개 이하일 때 깔리는 긴장 코드
+부스터 발동 시 "치링" 하는 하프 글리산도
+
+---
+
+Wwise에는 Stinger가 정식 오브젝트로 존재한다
+
+Interactive Music Hierarchy 안에서 Trigger로 발화되고, 
+현재 재생 중인 음악 위에 겹쳐서 나오며, 
+언제 들어올지를 sync point로 지정할 수 있다 
+(Immediate / Next Beat / Next Bar / Next Cue)
+
+"다음 마디에 맞춰 들어온다"가 stinger를 stinger답게 만드는 부분이다
+아무 때나 끼어들면 그냥 SFX와 구분이 안 된다
+
+---
+
+폴더는 "무엇인가"로 나누는 게 아니라 "import 설정이 같은가"로 나눈다.
+
+Project 창 검색과 label이 폴더보다 훨씬 강력하기 때문에
+분류 목적의 깊은 폴더는 관리 비용만 늘린다
+
+import 설정은 폴더 단위로 자동 적용할 수 있으므로
+여기서 폴더가 실질적 가치를 만든다
+
+---
+
+애셋을 import할 때 같은 폴더의 .preset을 찾고, 없으면 부모 폴더로 올라간다.
+
+Assets/
+  _Project/                        ← 우리가 만든 것. 서드파티 애셋과 분리
+    Audio/
+      Music/                       ← preset: Streaming + Vorbis, quality 60~70
+        BGM_MainTheme.wav
+        BGM_Stage_Calm.wav
+      Sfx/                         ← preset: Decompress On Load + ADPCM + Force To Mono
+        UI/
+          SFX_UI_ButtonTap.wav
+          SFX_UI_PopupOpen.wav
+        Gameplay/
+          SFX_Tile_Break_01.wav ... _05.wav
+          SFX_Tile_Swap.wav
+          SFX_Booster_Rocket.wav
+        Stinger/
+          STG_Combo_01.wav ... _05.wav
+          STG_LevelClear.wav
+      Containers/                  ← Audio Random Container 에셋
+        ARC_TileBreak.asset
+        ARC_ComboRise.asset
+      Cues/                        ← SoundEvent ScriptableObject
+        Cue_TileBreak.asset
+        Cue_LevelClear.asset
+      Mixer/
+        MainMixer.mixer
+
+---
+
+원본 wav와 조립품(ARC, Cue)을 분리한다
+wav는 재료고, ARC와 Cue는 그걸 조합한 결과물
+
+---
+
+파일명 prefix를 쓴다
+BGM_ / SFX_ / STG_ / ARC_ / Cue_
+
+Project 창에 SFX_UI 한 번 치면 끝나기 때문에 폴더를 더 팔 이유가 사라진다
+
+---
+
+(a) enum + 중앙 매니저 — SoundManager.Play(SfxId.TileMatch)
+
+호출부는 가장 깔끔하고 컴파일 타임 안전성도 있다
+
+enum ↔ 에셋 매핑 테이블을 어딘가에 계속 유지
+enum 중간에 값을 삽입하면 직렬화된 int가 전부 밀려서 인스펙터 설정이 어긋난다
+사운드를 추가할 때마다 코드를 수정해야 한다
+enum이 200줄이 되면 관리가 무너진다
+
+---
+
+(b) 컴포넌트마다 public AudioClip 필드
+
+같은 타일 파괴음이 30개 프리팹에 흩어지면 교체할 때 30군데를 고쳐야 하고
+볼륨/피치 설정이 각 스크립트에 중복된다
+
+---
+
+(c) ScriptableObject 기반
+
+SoundEvent 에셋 하나가 "이 소리를 어떻게 재생하는가"를 통째로 들고 있게 한다
+
+---
+
+중앙 싱글턴은 쓰되, 역할을 좁힌다.
+
+// ── AudioService::Play ──
+// 이 서비스는 "에셋을 소유하지 않는다". 오직 재생 엔진으로만 동작한다.
+// AudioSource 풀 관리 / mixer 라우팅 / cooldown / voice limiting 담당.
+public void Play(SoundEvent evt)
+
+---
+
+"중앙 매니저가 모든 사운드 에셋을 들고 있는" 구조를 피해야 하는 이유
+
+그 매니저 프리팹이 게임의 모든 오디오를 참조하는 순간, 첫 씬 로드에서 전부 메모리에 올라간다
+모바일에서는 이게 바로 초기 로딩 시간과 메모리 피크로 나타난다
+어떤 사운드가 어디서 쓰이는지 추적이 불가능해진다
+
+---
+
+SoundEvent 방식
+
+참조가 사용처에 붙어 있으므로 그 오브젝트가 로드될 때만 함께 로드된다
+
+---
+
+Vorbis는 **오디오 코덱(codec)**
+Ogg는 **컨테이너(container)**
+
+조합
+┌──────────────────────────┐
+│ Ogg container            │  ← 파일의 포장/구조
+│                          │
+│   Vorbis audio stream    │  ← 실제 음성 압축 방식
+│   metadata               │
+│   timestamps             │
+└──────────────────────────┘
+
+확장자    .ogg
+컨테이너  Ogg
+코덱      Vorbis
+
+즉 .ogg라는 확장자는 파일의 Ogg 포장 형식을 나타내고, 
+그 안의 오디오를 어떤 방식으로 압축했는지는 codec이 결정합니다
+
+---
+
+Assets/Audio/explosion.mp3
+
+Android 설정을:
+
+Compression Format = ADPCM
+
+---
+
+explosion.mp3
+    ↓
+MP3 decode
+    ↓
+PCM samples
+    ↓
+ADPCM encode
+    ↓
+Android 빌드용 AudioClip 데이터
+
+---
+
+Source format
+────────────────────
+.wav
+.flac
+.mp3
+.ogg
+
+"Unity 프로젝트에 무엇을 넣었는가"
+
+---
+
+Runtime compression format
+────────────────────
+PCM
+ADPCM
+Vorbis
+MP3
+기타 플랫폼별 형식
+
+---
+
+Unity는 import된 오디오를 AudioClip asset으로 취급하며,
+런타임은 그 안의 encoded audio data를 사용합니다
+
+---
+
+AAC = Advanced Audio Coding
+손실 압축 코덱
+Apple 생태계와 모바일/스트리밍 환경
+
+.m4a
+└─ MPEG-4 container
+   └─ AAC audio
+
+---
+
+Opus
+손실 압축 코덱
+IETF 표준 RFC 6716
+VoIP, 화상회의, 게임 음성 채팅, 음악 스트리밍 등
+
+.opus
+└─ 보통 Ogg container
+   └─ Opus
+
+.webm
+└─ WebM
+   └─ Opus
+
+---
+
+ALAC = Apple Lossless Audio Codec
+무손실 압축 코덱
+압축을 풀면 원래 PCM sample을 그대로 복원할 수 있습니다
+
+Apple Music의 Lossless도 ALAC를 사용
+
+music.m4a
+└─ MPEG-4 container
+   └─ ALAC audio
+
+song.m4a
+   │
+   ├─ AAC   ← lossy
+   │
+   └─ ALAC  ← lossless
+
+---
+---
+---
+
+SFX_UI_MenuClick     ← 대문자 덩어리 = 분류, PascalCase = 이름. 구조가 눈에 보인다
+Sfx_Ui_MenuClick     ← 세 토큰이 전부 같은 모양. 어디까지가 분류인지 안 보인다
+
+PREFIX_[Category_]DescriptiveName[_NN]
+
+BGM_Stage_Calm.wav
+STG_Combo_03.wav
+ARC_TileBreak.asset
+
+---
+
+약어(initialism)와 축약(truncation)을 구분
+
+약어 → 대문자: SFX, UI, BGM, VFX, NPC, HUD, FPS, AI
+축약 → PascalCase: Anim, Env, Char, Tex, Config, Prefab
+
+---
+---
+---
+
+"매니저가 다 들고 있으면 안 된다"
+"각자 들고 있어야 한다"
+"함께 로드되어야 할 것들끼리 묶여야 한다"
+
+묶음의 크기를 정하지 않으면 N↔N이라는 극단으로 밀려버린다
+
+---
+
+항상 필요: UI 사운드 전부, 타일/매치 사운드 전부, 콤보 stinger 전부, 메인 BGM — 전체의 90%
+테마·스테이지별: 테마 BGM, 테마 전용 SFX 몇 개
+드물게: 시즌 이벤트 컨텐츠
+
+진짜로 아픈 건 오픈월드나 대형 RPG처럼 지역별로 수백 MB가 갈리는 경우
+
+---
+
+InputActionAsset  (에셋 1개)
+  └─ InputActionMap   Player / UI / Menu        ← 활성화 단위
+       └─ InputAction   Move, Jump, Fire         ← 개별 액션
+
+Input System은 N개 Action에 N개 에셋을 만들지 않습니다.
+전부 에셋 하나 안에 계층으로 들어가 있고, 
+개별 참조가 꼭 필요할 때만 InputActionReference 라는 얇은 포인터를 씁니다
+
+그리고 Enable/Disable은 Action 단위가 아니라 Map 단위
+
+왜 Input은 통짜로 가능했을까요? Action의 데이터가 가볍기 때문입니다
+
+---
+
+사운드는 다릅니다. 
+Event가 AudioClip 을 물고 있어서 에셋 경계가 곧 로드 경계가 됩니다
+
+---
+
+AudioSource를 GameObject에 붙이는 게 맞는 경우
+
+위치가 의미 있을 때 — 3D 감쇠, 패닝
+소리가 오브젝트의 수명을 따라가야 할 때 — 오브젝트가 사라지면 소리도 멈춰야 함
+재생 중에 제어해야 할 때 — 루프의 pause/resume, pitch 실시간 조절, 볼륨 페이드
+
+---
+
+퍼즐 게임의 SFX는 여기서 벗어난다
+
+오브젝트가 죽으면서 소리가 잘립니다
+
+동시 발음 관리가 분산됩니다. 
+캐스케이드로 타일 20개가 동시에 터지면 AudioSource 20개가 독립적으로 재생됩니다. 
+전체 동시 발음수를 통제할 지점이 없어요
+
+오브젝트 풀링과 충돌합니다
+
+---
+
+1단계. wav import. 폴더 preset이 자동 적용되므로 드래그만 하면 끝
+
+2단계. 변주가 필요한 소리는 ARC로 묶기
+SFX_Tile_Pop_01 ~ _05 를 선택해 ARC_TilePop.asset 에 넣고
+pitch/volume randomization 범위를 설정
+
+3단계
+카테고리 SO 생성
+
+---
+
+4단계. 프리팹에 카테고리 하나 연결
+
+TileView 프리팹의 _sounds 슬롯에 TileSounds.asset 드래그
+
+---
+
+Hierarchy
+
+[DontDestroyOnLoad]
+  └─ [AudioService]              ← 코드로 자동 생성. 씬에 없다
+       ├─ Voice_00  (AudioSource)   ← 풀
+       ├─ Voice_01  (AudioSource)
+       └─ ...  x 16
+
+[Game Scene]
+  └─ Board
+       ├─ TileView (prefab instance)   ← AudioSource 없음
+       ├─ TileView
+       └─ ...
+
+---
+
+관행 패턴
+
+// ── TileView::OnPopped  ──
+[SerializeField] AudioSource _audio;      // 인스펙터 슬롯 1
+[SerializeField] AudioClip   _popClip;    // 인스펙터 슬롯 2
+[SerializeField] AudioClip   _swapClip;   // 인스펙터 슬롯 3
+[SerializeField] float       _popVolume = 0.8f;  // 슬롯 4...
+
+void OnPopped() => _audio.PlayOneShot(_popClip, _popVolume);
+
+---
+
+제안 구조
+
+// ── TileView::OnPopped ──
+[SerializeField] TileSounds _sounds;      // 인스펙터 슬롯 1개
+
+void OnPopped() => _sounds.Pop.Play();
+
+---
+
+볼륨/쿨다운 같은 튜닝값이 프리팹이 아니라 SO에 모이고
+클립을 교체할 때 프리팹이 아니라 SO 한 곳만 고칩니다
+
+---
+
+AudioService 부트스트랩과 풀
+
+씬에 배치하면 씬마다 넣어야 하고 중복 처리도 필요합니다
+코드로 만드는 게 깔끔합니다
+
+[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+static void Bootstrap()
+{
+    var go = new GameObject("[AudioService]");
+    DontDestroyOnLoad(go);
+    Instance = go.AddComponent<AudioService>();
+}
+
+---
+
+// 에셋을 소유하지 않는다. 빌려주고, 세팅하고, 회수한다.
+public void Play(SoundEvent evt)
+{
+    if (!evt.TryConsumeCooldown(Time.unscaledTime)) return;
+
+    var voice = _pool.Rent();          // 없으면 priority 낮은 것을 steal
+    evt.ApplyTo(voice);                // resource, group, volume, priority
+    voice.Play();
+    _pool.ReturnWhenFinished(voice);
+}
+
+---
+
+UI는 다르게 갑니다
+
+버튼이 200개인데 각각 UISounds 를 참조하게 하면 안 됩니다
+공통 클릭음은 개별 버튼의 관심사가 아니라 
+UI 레이어 전체의 정책
+
+// ── UISoundBinder::Awake ──
+// 씬의 UI 루트에 하나만 붙인다. 개별 버튼은 사운드를 모른다.
+[SerializeField] UISounds _sounds;
+
+버튼별로 다른 소리가 필요한 경우만 예외적으로 개별 참조를 겁니다
+
+---
+
+AudioManager.Play(Audio.Game.Pop);
+AudioManager.Play(Audio.UI.Click);
+
+// named argument
+AudioManager.Play(Audio.Game.Bomb, pitch: 1.5f);
+
+// 옵션 struct
+AudioManager.Play(Audio.Game.Bomb, new PlayParams { Pitch = 1.5f, Volume = 0.8f });
+
+---
+
+얻는 것
+인스펙터 배선이 0
+자동완성이 계층을 안내합니다
+
+Find Usages가 작동
+SO 드래그 방식은 "이 사운드를 누가 쓰나"를 코드에서 추적할 수 없습니다
+
+---
+
+잃는 것
+이 설계는 "하나의 매니저가 모든 참조를 들고 있는" 구조
+
+---
+
+C#의 static 초기화는 해당 타입에 처음 접근하는 순간 실행됩니다
+게임플레이 도중 첫 폭탄이 터질 때 Audio.Game 타입 초기화가 일어나면서 클립 디코딩이 몰리고
+그 순간 프레임이 튑니다
+
+로드는 명시적으로, 접근은 static으로 분리하면 해결됩니다
+
+// ── 스테이지 진입 (로딩 화면 뒤) ──
+await AudioBanks.LoadAsync(Bank.Game, Bank.UI);
+
+// ── 게임플레이 중 — 순수 조회, 로드 트리거 없음 ──
+AudioManager.Play(Audio.Game.Pop);
+
+// ── 스테이지 이탈 ──
+AudioBanks.Unload(Bank.Game);
+
+---
+
+Audio.Game.Pop 프로퍼티를 사운드마다 손으로 추가하면,
+"사운드 추가할 때마다 코드 수정" 이라는 enum 방식의 단점이 그대로 돌아옵니다
+
+코드 생성으로 풀어야 합니다
+
+디자이너가 Pop 을 Break 로 이름 바꾸면 생성 코드가 바뀌고 호출부가 컴파일 에러를 냅니다
+런타임에 조용히 무음이 되는 대신에요
+
+---
+
+게임 패키지 / Storage
+AudioClip 데이터 로드 / 스트리밍
+Decode
+Unity Audio Engine
+Unity의 최종 PCM Output Buffer
+OS Audio API
+OS Mixer / Audio Service
+HAL + Kernel Audio Driver
+SoC → Audio Codec / Smart Amplifier
+DAC 또는 디지털 Power Stage
+Power Amplifier
+Speaker actuator
+진동판 움직임
+공기의 압력파
+귀
+
+---
+
+재생하려면 어느 시점엔 DSP가 처리할 수 있는 PCM sample 형태가 필요합니다.
+
+Vorbis bitstream
+
+101101001001...
+
+      ↓ decoder
+
+PCM samples
+
+L:  0.012  0.038  0.071  0.094 ...
+R:  0.011  0.035  0.069  0.091 ...
+
+---
+
+Unity가 여러 소리를 가공합니다
+
+Footstep ────┐
+Explosion ───┤
+BGM ─────────┤
+NPC Voice ───┤
+UI Click ────┘
+             │
+             ▼
+        Unity DSP/Mixer
+             │
+             ▼
+         Stereo PCM
+
+---
+
+중요한 점은 이 과정이 Update()의 게임 프레임과 
+별도의 audio/DSP 시간축에서 지속된다는 것
+
+Game Thread
+16.6 ms     16.6 ms     16.6 ms
+│-----------│-----------│-----------
+
+Audio
+[buffer][buffer][buffer][buffer][buffer]...
+
+오디오는 일정량의 sample을 buffer 단위로 계속 공급해야 합니다
+
+---
+
+Android
+
+Game / Unity
+     ↓
+Native / Android Audio API
+     ↓
+Binder IPC
+     ↓
+AudioFlinger 등 Audio Service
+     ↓
+Audio HAL
+     ↓
+Kernel Driver
+     ↓
+Audio Hardware
+
+---
+
+AOSP
+application framework
+native framework
+Binder
+media server/AudioFlinger
+HAL
+kernel driver
+hardware
+
+---
+
+Unity Game ──────┐
+Spotify ─────────┤
+Notification ────┤
+Phone/System ────┘
+                 │
+                 ▼
+             OS Mixer
+                 │
+                 ▼
+          하나의 Output Stream
+
+---
+
+iOS
+
+Core Audio가 앱과 오디오 하드웨어 사이의 디지털 오디오 기반 시설을 제공하고
+HAL과 I/O Audio Unit이 실제 hardware I/O를 연결합니다
+
+Core Audio의 audio stream
+user/kernel 경계를 오가는 sample buffer
+
+---
+
+OS/driver가 최종적으로 전달하는 것은 디지털 PCM 데이터
+
+frame 0   L=...   R=...
+frame 1   L=...   R=...
+frame 2   L=...   R=...
+frame 3   L=...   R=...
+
+---
+
+SoC와 오디오 칩 사이에서는 I²S, TDM 같은 
+digital audio interface가 사용됩니다
+
+---
+
+스피커에는 전기 신호에 따라 움직이는 actuator가 있고 그것이 진동판을 움직입니다
+
+전기 신호
+   ↓
+speaker actuator
+   ↓
+진동판
+← → ← → ← →
+   ↓
+주변 공기를 밀고 당김
+
+압축   희박   압축   희박
+|||||   | |   |||||   | |
+   ↓
+공기 압력 변화가 전파
+   ↓
+귀
+
+---
+---
+---
+
+어셈블리 경계
+처음에 안 나누면 나중에 순환 참조를 다 풀어야 합니다. 
+그리고 이게 "다음 프로젝트가 이어받는다"의 실질적 수단
+
+
+재생 백엔드 추상화
+다음 프로젝트가 3D 게임이거나 FMOD를 쓰게 되면, 
+이 경계가 없을 때 전부 다시 씁니다
+
+핸들(handle) 개념
+Play() 가 void면 "재생 중인 소리 제어"가 필요해지는 순간 backend 전체를 손봐야 합니다
+
+---
+---
+---
+
+void SpawnEnemy(string type, int level, bool elite)
+
+positional argument 호출
+SpawnEnemy("Goblin", 10, true);
+
+named argument 호출
+SpawnEnemy(type: "Goblin", level: 10, elite: true);
+
+유용한 용도 중 하나는 optional parameter와의 조합
+
+---
+
+함정
+
+expression은 호출문에 적힌 순서대로 평가됩니다
+
+void Test(int a, int b) {}
+Test(b: GetB(), a: GetA());
+
+GetB()
+↓
+GetA()
+↓
+Test(...)
+
+---
+
+함정
+
+parameter 이름도 public API 호환성의 일부처럼 취급해야 한다
+
+Connect(address: "server", timeout: 5000);
+
+라이브러리가 나중에
+public void Connect(string host, int timeout)
+으로 parameter 이름을 변경하면 기존 소스 코드를 다시 컴파일할 때 address:를 찾지 못합니다
+
+---
+
+호출부에서 compiler가 이름을 이용해 parameter 대응 관계를 결정하는 언어 기능
+호출 대상과 argument 대응이 결정되어 일반적인 메서드 호출로 컴파일됩니다
+
+---
+
+[로드 축]   언제 메모리에 올라오고 언제 내려가는가        ← 생명주기
+
+[설정 축]   어떻게 재생되는가                            ← 성격
+              ├ Profile   (공유)
+              ├ Override  (에셋 단위 예외, 영구)
+              └ PlayParams(호출 단위 예외, 일시)
+
+---
+
+Unity의 직접 참조는 역직렬화 시점에 의존 애셋을 함께 로드합니다
+GameplayBank.asset 을 참조하는 순간 그 안의 모든 AudioClip 이 올라옵니다
+
+---
+
+Addressables — 로드 시점, 언로드, 원격 다운로드, refcount를 전부 제공
+
+Addressables를 지금 도입
+
+나중에 도입하는 비용이 압도적으로 큽니다
+전 애셋의 참조 방식을 바꾸고, 그룹을 다시 짜고, 로드 코드를 전부 비동기로 전환해야 합니다
+
+---
+
+Addressables
+
+뱅크 경계는 번들 경계여야 한다
+
+you can't unload part of an AssetBundle
+When a bundle's reference count returns to zero.
+Unity then unloads the bundle and all the assets contained in it
+
+즉 애셋을 Release해도 그 애셋이 속한 번들 전체의 refcount가 0이 되기 전까지는 메모리에서 안 내려갑니다
+뱅크 A와 뱅크 B의 클립이 같은 번들에 섞여 있으면, A를 Unload해도 아무것도 해제되지 않습니다
+
+규칙: SoundBank 1개 = Addressables Group 1개 = Bundle 1개
+
+---
+
+함께 로드되고 함께 언로드되는 것끼리 묶습니다
+
+Boot          앱 시작 ~ 종료
+MainMenu      메인 화면 진입 ~ 이탈
+GameplayCore  인게임 진입 ~ 이탈
+Theme_Ocean   해당 테마 스테이지에서만
+
+---
+
+// ── SoundProfile (ScriptableObject) ──
+// AudioClip 을 참조하지 않는다. 그래서 전부 로드해도 KB 단위다.
+[CreateAssetMenu(menuName = "Audio/Sound Profile")]
+public class SoundProfile : ScriptableObject
+
+UIProfile.asset          group=UI,   vol=0.7, cooldown=0.05, priority=200, 2D
+SfxProfile.asset         group=SFX,  vol=1.0, cooldown=0.03, priority=128, 2D
+MusicProfile.asset       group=BGM,  vol=0.6, loop=true,     priority=0,   2D
+
+---
+
+로드 축 — SoundBank. Addressables 그룹과 1:1입니다.
+
+// ── SoundBank (ScriptableObject) ──
+// 뱅크 자체는 가볍다. AssetReference 는 GUID 문자열이지 클립이 아니다.
+[CreateAssetMenu(menuName = "Audio/Sound Bank")]
+public class SoundBank : ScriptableObject
+
+---
+
+// ── SoundEvent ([Serializable], 뱅크 안에 인라인) ──
+[Serializable]
+public class SoundEvent
+
+---
+
+// ── SoundEvent::Resolve ──
+// Profile(공유) → Override(에셋 단위, 영구) → PlayParams(호출 단위, 일시)
+
+public struct SoundOverrides
+
+Pop
+  Resource ...... [ ARC_TilePop        ]
+  Profile ....... [ SfxProfile         ]     ← 대부분 여기서 끝
+  Overrides
+    ☑ Volume .... 0.85                       ← 이 소리만 살짝 작게
+    ☐ Pitch
+    ☐ Priority
+    ☐ Cooldown
+
+---
+
+Bank
+오디오 쪽에서 정착 용어
+Wwise, FMOD
+
+개별 AudioClip보다 한 단계 위의 resource residency unit
+어떤 자원들을 메모리에 함께 상주시킬 것인가를 표현하는 이름
+
+---
+
+하드웨어에서
+
+Linux
+
+Memory
+├── Bank 0
+├── Bank 1
+├── Bank 2
+└── Bank 3
+
+ARM에는 banked registers
+
+전체 자원
+    ↓ partition
+┌────────┬────────┬────────┐
+│ Bank A │ Bank B │ Bank C │
+└────────┴────────┴────────┘
+    ↑
+ 선택 / 로드 / 활성화 / 접근
+
+---
+
+Group
+논리적인 분류
+
+Bundle
+실제 패키징된 산출물
+
+Bank
+런타임에서 함께 다루는 자원 집합
+
+Pool
+꺼내 쓰고 반환하며 재사용하는 객체 저장소
+
+Cache
+원본이 다른 곳에 존재하며, 빠른 접근을 위해 임시 보관하는 계층
+
+---
+
+Conceptual lifetime boundary
+        SoundBank
+            │
+            ▼
+Editor organization boundary
+    Addressables Group
+            │
+            ▼
+Physical loading boundary
+       AssetBundle
+
+---
+---
+---
+
+SoundBank 1개 = Addressables Group 1개 = Bundle 1개.
+
+그룹 설정에서 Bundle Mode를 Pack Together
+All assets in a group are combined into a single bundle
+
+---
+
+피해야 할 함정 — 공유 애셋 중복
+
+If they're in separate bundles, and the texture isn't Addressable, then it's duplicated
+
+SoundProfile 과 MainMixer 는 모든 뱅크가 참조합니다
+이들을 Addressable로 마킹하지 않으면 모든 뱅크 번들에 복제됩니다
+
+Profile, Mixer, Bank SO는 전부 Addressable로 마킹해서 Boot 그룹에 넣습니다
+그러면 다른 번들은 Boot 번들에 의존만 하고 복제하지 않습니다
+
+---
+
+이전에 폴더 기반 import preset을 권했는데, 
+폴더가 이제 뱅크 기준으로 갈리므로 그 방식이 깨집니다
+대신 파일명 prefix 기반으로 갑니다
+
+// ── AudioImportRules::OnPreprocessAudio ──
+
+---
+
+사운드는 대부분 "선택"입니다.
+없으면 소리가 안 날 뿐 게임은 성립합니다. 
+그러니 사운드 다운로드 때문에 게임 진입을 막지 마세요
+
+Boot — 앱 시작 스플래시에서 await. 로컬이고 작아서 체감이 없습니다
+MainMenu / GameplayCore — 로컬 번들. 로딩 화면에서 await. 확실하고 빠릅니다
+Theme (원격) — 백그라운드. 도착 전에는 GameplayCore의 기본 사운드로 폴백하고, 도착하면 crossfade
+
+---
+
+
+진행률은 반드시 바이트 기준
+
+PercentComplete
+1KB짜리 5개와 50MB짜리 1개가 같은 가중치라 바가 튑니다
+
+GetDownloadStatus().Percent
+"the percentage of total download size". 바이트 기준
+
+---
+
+미로드 상태 접근 정책
+
+// ── UnityAudioBackend::Play ──
+if (!evt.Resource.IsLoaded)
+{
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        Debug.LogWarning($"[Audio] '{evt.Key}' not loaded — bank '{evt.BankName}' missing.");
+    #endif
+    return AudioHandle.Invalid;     // 릴리즈에서는 조용히 무음
+}
+
+---
+
+SoundBank 설계
+
+// ── SoundBank (ScriptableObject) ──
+// 로드 단위. Addressables Group 과 1:1. 자신은 Boot 그룹에 상주하며
+// AssetReference(GUID 문자열)만 들고 있어 클립을 끌고 오지 않는다.
+[CreateAssetMenu(menuName = "Audio/Sound Bank")]
+public class SoundBank : ScriptableObject
+{
+    [SerializeField] string       _bankId;            // "GameplayCore" — 생성 코드의 네임스페이스
+    [SerializeField] string       _addressableGroup;  // "Audio_GameplayCore" — 검증용
+    [SerializeField] SoundEvent[] _events;
+
+    Dictionary<string, SoundEvent> _lookup;           // 최초 접근 시 1회 구축
+
+    public string BankId => _bankId;
+
+    // ── SoundBank::Find ──
+    public SoundEvent Find(string key)
+    {
+        _lookup ??= _events.ToDictionary(e => e.Key);
+        return _lookup.TryGetValue(key, out var e) ? e : null;
+    }
+}
+
+---
+
+Audio.gen.cs 설계
+
+namespace Game.Audio
+{
+    // 사운드 접근 — 뱅크가 곧 네임스페이스가 된다
+    public static class Audio
+    {
+        public static class Boot
+        {
+            static SoundEvent _error;
+            public static SoundEvent Error => _error ??= Banks.Boot.Find("Error");
+        }
+
+        public static class GameplayCore
+        {
+            static SoundEvent _pop, _swap, _bomb;
+            public static SoundEvent Pop  => _pop  ??= Banks.GameplayCore.Find("Pop");
+            public static SoundEvent Swap => _swap ??= Banks.GameplayCore.Find("Swap");
+            public static SoundEvent Bomb => _bomb ??= Banks.GameplayCore.Find("Bomb");
+        }
+    }
+
+    // 뱅크 접근 — 로드/해제용
+    public static class Banks
+    {
+        public static SoundBank Boot         => BankRegistry.Get("Boot");
+        public static SoundBank MainMenu     => BankRegistry.Get("MainMenu");
+        public static SoundBank GameplayCore => BankRegistry.Get("GameplayCore");
+
+        // 파라미터화된 뱅크는 팩토리로 (테마가 늘어나도 재생성 불필요)
+        public static SoundBank Theme(string themeId) => BankRegistry.Get("Theme_" + themeId);
+    }
+}
+
+---
+
+생성 정책
+
+수동 버튼 하나 (Tools > Audio > Regenerate)
+뱅크 SO 저장 시 자동 (AssetModificationProcessor)
+
+생성 결과가 이전 파일과 같으면 쓰지 않습니다. 
+안 그러면 뱅크를 열어보기만 해도 recompile이 돌아서 작업 흐름이 끊깁니다
+
+---
+
+Preset 애셋
+
+만드는 법 — 원하는 설정으로 조정한 AudioImporter 인스펙터의 우상단 슬라이더 아이콘 
+→ Save current to... → .preset 애셋 생성
+
+적용하는 법 — 파일 여러 개를 한꺼번에 선택 → 인스펙터 우상단 Preset 아이콘 → 목록에서 선택
+
+---
+
+folder-scoped preset
+override cascade 구조
+
+Clips/
+  Audio_Default.preset            ← 전역 기본 (SFX 설정)
+  MainMenu/
+    (preset 없음)                  → 부모의 Audio_Default 상속
+  GameplayCore/
+    Audio_Gameplay.preset          ← 이 폴더만 다른 설정
+  Themes/
+    Audio_ThemeCompressed.preset   ← 테마는 더 압축
+    Ocean/
+      (없음)                       → Audio_ThemeCompressed 상속
+
+---
+
+개별 예외를 보존하는 열쇠 — importSettingsMissing
+
+최초 import일 때만 true
+최초 import 에만 규칙을 적용한다. 이후 사람이 손댄 설정은 건드리지 않는다
+
+1. Preset Manager 기본값        프로젝트 전역 fallback
+2. 부모 폴더의 .preset          상속
+3. 같은 폴더의 .preset          폴더 단위 규칙
+4. 파일명 prefix 규칙           이름 단위 규칙 (preset 없을 때)
+5. 개별 수동 조정               파일 단위 예외  ← escape hatch. .meta 에 영구 보존
+
+---
+
+파일 단위 override
+.meta 파일이 곧 파일 단위 override 저장소
+
+최초 import   .meta 없음  →  importSettingsMissing == true   →  규칙 적용  →  결과가 .meta 에 기록
+이후 import   .meta 있음  →  importSettingsMissing == false  →  규칙 skip  →  .meta 값 그대로
+사람이 수정   인스펙터에서 값 변경 → Apply → .meta 갱신 → 영구 보존
+
+---
+
+어떤 파일이 규칙을 따르고 있고 어떤 파일이 개별 조정됐는지 구분이 안 됩니다
+6개월 뒤 "이 BGM은 왜 PCM이지?"에 아무도 답할 수 없습니다
+신입이 "규칙 이상한데?" 하고 재적용을 돌리면 조용히 날아갑니다
+
+// ── AudioImportOverrides (ScriptableObject) ──
+// 규칙에서 벗어나는 파일을 명시적으로 등록한다. reason 이 이 에셋의 존재 이유다.
+[CreateAssetMenu(menuName = "Audio/Import Overrides")]
+public class AudioImportOverrides : ScriptableObject
+
+---
+
+// ── SoundBankCodeGenerator::Generate ──
+
+AssetDatabase.FindAssets("t:SoundBank")
+  .Select
+  .OrderBy
+  .ToList
+
+Validate(banks);
+
+(3) 코드 조립
+
+var sb = new StringBuilder();
+
+sb.AppendLine("// <auto-generated> SoundBankCodeGenerator. 직접 수정 금지. </auto-generated>");
+...
+
+---
+---
+---
+
+문자열이 클립이 아니라 SoundEvent를 가리키게
+
+namespace Game.Audio
+{
+    public static class Audio
+    {
+        public static class Game
+        {
+            public const string Win  = "game/win";
+            public const string Pop  = "game/pop";
+            public const string Bomb = "game/bomb";
+        }
+        public static class UI
+        {
+            public const string Click = "ui/click";
+        }
+    }
+}
+
+---
+
+문자열 상수의 유일한 약점은 애셋 이름/주소를 바꾸면 컴파일은 통과하고 런타임에 무음
+그리고 이걸 EditMode 테스트로 한 번 더 감싸면 CI가 자동으로 잡습니다
+
+// ── AudioAddressValidator::Validate ──
+// 리플렉션으로 Audio 클래스의 const string 을 전부 긁어 실제 주소와 대조한다.
+// 제네레이터 200줄 대신 이거 40줄이면 같은 사고를 막는다.
+[MenuItem("Tools/Audio/Validate Addresses")]
+static void Validate()
+
+---
+
+주소를 파일 경로와 분리하세요
+
+"assets/audio/game/SFX_Win" 처럼 경로를 그대로 쓰면 파일을 옮기는 순간 깨집니다.
+Addressables는 주소를 수동으로 지정할 수 있으니 짧고 안정적인 논리 주소를 쓰세요
+
+파일: Assets/_Project/Audio/Events/GameplayCore/Cue_Win.asset
+주소: game/win
+
+---
+---
+---
+
+AssetReferenceT<T>
+인스펙터 드래그로 설정하고, GUID를 저장하므로 파일명·경로·주소를 바꿔도 안 깨집니다
+
+[Serializable]
+public class SoundEventRef : AssetReferenceT<SoundEvent>
+{
+    public SoundEventRef(string guid) : base(guid) { }
+}
+
+// ── GameSounds ([Serializable]) ──
+// 필드 선언이 곧 등록이다. 문자열도, 주소도, 제네레이터도 없다.
+[Serializable]
+public class GameSounds : SoundCategory
+{
+    public SoundEventRef Win;
+    public SoundEventRef Pop;
+    public SoundEventRef Bomb;
+}
+
+[Serializable]
+public class UISounds : SoundCategory
+{
+    public SoundEventRef Click;
+    public SoundEventRef PopupOpen;
+}
+
+---
+---
+---
+
+If multiple classes are defined in your script, Unity selects the class with the same name as the file
+
+// ══════════════════════════════════════════════════════════════
+//  AudioLibrary.cs  —  게임의 사운드 카탈로그. 이 파일 하나가 전부
+// ══════════════════════════════════════════════════════════════
+namespace Game.Audio
+{
+    [CreateAssetMenu(menuName = "Audio/Library")]
+    public class AudioLibrary : ScriptableObject
+    {
+        public GameSounds  Game;
+        public UISounds    UI;
+        public MusicSounds Music;
+
+        // ─── 카테고리 = 로드 단위 ─── 필드 한 줄 = 사운드 하나 등록
+        [Serializable]
+        public class GameSounds : SoundCategory
+        {
+            public SoundEventRef Win, Pop, Bomb, Cascade, SwapFail;
+        }
+
+        [Serializable]
+        public class UISounds : SoundCategory
+        {
+            public SoundEventRef Click, PopupOpen, PopupClose, Error;
+        }
+
+        [Serializable]
+        public class MusicSounds : SoundCategory
+        {
+            public SoundEventRef Lobby, Stage, Result;
+        }
+    }
+
+    // ─── 호출부가 보는 얼굴 ───
+    public static class Audio
+    {
+        static AudioLibrary L => AudioRuntime.Library;   // 부트에서 1회 주입
+
+        public static AudioLibrary.GameSounds  Game  => L.Game;
+        public static AudioLibrary.UISounds    UI    => L.UI;
+        public static AudioLibrary.MusicSounds Music => L.Music;
+    }
+}
+
+---
+
+SoundEvent 에셋 → "효과음 하나 바꾸려고 프리팹 30개 수정" 회피
+SoundProfile → "UI 사운드 전부 같은 볼륨 정책"
+Overrides → "그 중 하나만 예외"
+카테고리 → "그룹별로 로드 시점이 다름"
+AssetReferenceT → "주소 문자열이 깨지는 루프" 제거
+IAudioBackend → 다음 프로젝트가 3D이거나 FMOD를 쓸 때
+
+---
+
+코드 제네레이터 — 나중에 도입해도 호출부가 안 바뀌므로 제외
+SoundBank SO — Addressables Group과 중복이라 제외
+AudioResourceRef 래퍼 — 같은 번들이면 직접 참조로 충분해서 제외
+DI 컨테이너 — static facade + backend 교체로 충분
+Occlusion, 인터랙티브 뮤직, 커스텀 DSP — 필요해질 때
+
+---
+
+"간단하게 가자"의 실체
+
+효과음 1개 교체          →  참조하는 프리팹 전부 수정
+볼륨 정책 변경           →  스크립트 N개에 흩어진 상수 전부 수정
+스테이지별 로드 분리     →  구조적으로 불가능 (전부 상시 로드)
+사운드 미사용 감지       →  불가능
+
+---
+
+소유자가 있는 소리
+
+이 몬스터의 울음, 이 부스터의 발동음, 이 스킨의 타격음. 
+오브젝트가 소리를 결정합니다.
+
+소유자가 없는 소리
+
+레벨 클리어, 콤보 stinger, 구매 완료, 에러, BGM
+
+분산 방식은 전자에 자연스럽고, 
+중앙화는 후자에 자연스럽습니다
+
+---
+
+분산 방식 (A)
+
+public class TileView : MonoBehaviour
+{
+    [SerializeField] SoundEventRef _popSound;
+    void OnPopped() => AudioManager.Play(_popSound);
+}
+
+Unity 기본 멘탈 모델과 일치합니다
+프리팹이 자기가 쓰는 걸 참조한다
+
+약점
+
+AssetReference 를 쓰면 각 컴포넌트가 자기 로드 코드를 갖게 됩니다
+Start() 에서 LoadAssetAsync, OnDestroy() 에서 ReleaseAsset
+
+---
+
+중앙화 (B)
+
+AudioManager.Play(Audio.Game.Pop);
+
+한 파일에서 카탈로그 전체를 봅니다
+어디서든 호출. 배선이 없고, 시스템 사운드에 강합니다
+로드 단위를 명시적으로 설계할 수 있습니다. 카테고리 = 뱅크 = 번들
+Find Usages가 됩니다
+미사용 감지가 됩니다
+
+약점
+
+중앙 파일이 머지 병목입니다. 특히 .asset 은 머지가 아픕니다
+변형에 약합니다. 같은 스크립트가 다른 소리를 내야 하면 필드를 늘리거나 파라미터화해야 합니다
+전역 결합. 이 컴포넌트가 무엇에 의존하는지 시그니처에 안 드러납니다
