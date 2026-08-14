@@ -1,0 +1,1338 @@
+Unity 2017.2
+
+Grid — 셀 레이아웃(모양·크기)만 담당. Tilemap의 부모
+Tilemap — 셀 좌표 → 타일 데이터 저장소
+TilemapRenderer — chunk 단위 배칭·컬링
+TilemapCollider2D — 타일 단위 콜라이더 생성
+Tile Palette 윈도우 + GridBrush
+
+---
+
+Unity 2018.2 / 2018.3 — 격자 모양 확장
+
+Hexagonal Tilemap (Point Top / Flat Top)
+Isometric Tilemap, 그리고 높이 표현용 Isometric Z as Y
+
+---
+
+2019 — 패키지로 분리
+
+com.unity.2d.tilemap (2D Tilemap Editor) — 에디터 기능
+com.unity.2d.tilemap.extras (2D Tilemap Extras) — Rule Tile, Animated Tile, 각종 커스텀 브러시
+
+런타임(com.unity.modules.tilemap)은 엔진 built-in module로 남기고 
+편집 도구만 떼어낸 구조
+
+---
+
+Rule Tile의 재작성 (Extras 1.3.0, 2019.11)
+
+이전엔 이웃 8칸을 index로 고정 검사했는데,
+
+index → position 기반으로 변경
+8칸 고정 해제, Extend Neighbor로 검사 범위 확장
+DontCare 규칙 제거
+RefreshTile()이 영향받는 원격 타일까지 갱신
+이웃 위치 캐싱으로 refresh 속도 개선
+
+---
+
+성능·API 정비 (2020~2022)
+
+TilemapRenderer.Mode.SRPBatch 추가
+chunkCullingBounds — 셀보다 큰 스프라이트가 컬링에 잘리는 문제 해결
+SetTiles / SetTilesBlock, TileChangeData 벌크 API
+
+2022.2: Tile Palette 윈도우 구현 기반의 교체
+UI 프레임워크를 IMGUI에서 UI Toolkit으로 옮긴 것
+
+---
+
+Unity 6.x — Tile Set 시대 (2024~)
+
+Tile Set (6.1): 텍스처를 넣으면 타일 에셋과 팔레트가 자동 생성되고, 
+원본 텍스처를 수정하면 팔레트와 씬의 타일맵이 자동 갱신된다. 
+슬라이스·재임포트 수작업이 사라짐
+
+Tile Template Asset
+CreateTileAssets(texture, sprites, ref tilesToAdd)를 오버라이드해 
+"스프라이트마다 타일 하나" 기본 동작을 바꿀 수 있다
+예를 들어 텍스처 하나에서 Rule Tile 하나만 뽑기
+
+---
+
+(6.4 / 6000.4)
+
+TileAnimationEntityIdData
+
+기존 TileAnimationData와 같은 역할이지만 
+managed object reference 대신 EntityId와 NativeArray를 쓴다
+
+---
+---
+---
+
+UnityEngine.Object
+└── ScriptableObject
+    ├── TileBase                          (abstract)  [engine]
+    │   ├── Tile                                      [engine]
+    │   ├── AnimatedTile                              [extras]
+    │   ├── AutoTile                                  [extras 4.2.0+]
+    │   ├── RuleTile                                  [extras]
+    │   └── RuleOverrideTile                          [extras]
+    ├── GridBrushBase                     (abstract)  [engine]
+    │   ├── GridBrush                                 [pkg]
+    │   │   ├── LineBrush                             [extras]
+    │   │   ├── RandomBrush                           [extras]
+    │   │   └── GroupBrush                            [extras]
+        │   └── GameObjectBrush                           [extras]
+    ├── TileTemplate                      (abstract)  [pkg, 6.1+]
+    │   ├── PositionTileTemplate                      [pkg 예제]
+    │   ├── AutoTileTemplate                          [extras]
+    │   └── RuleTileTemplate                          [extras 4.2.0+]
+        ├── TileSet                                       [pkg, 6.1+]
+    ├── GridSelection                                 [pkg]
+    └── ScriptableSingleton<GridPaintingState>
+        └── GridPaintingState                         [pkg]
+
+---
+
+UnityEngine.Object
+└── Component
+    ├── Behaviour
+    │   └── GridLayout                    [engine, GridModule]
+    │       ├── Grid                      셀 모양·크기·간격 정의
+    │       └── Tilemap                   셀 → TileBase 저장소
+    ├── Renderer
+    │   └── TilemapRenderer               [engine]
+    └── Collider2D
+        └── TilemapCollider2D             [engine]
+
+---
+
+interface ITilemap                    Tilemap의 읽기 전용 view
+                                      TileBase 콜백에 전달되는 유일한 통로
+
+struct  TileData                      sprite, color, transform, gameObject,
+                                      flags, colliderType  ← 타일이 "응답"하는 값
+
+struct  TileChangeData                position + TileBase + 변경 데이터 (벌크 API용)
+
+struct  TileAnimationData             animatedSprites[], duration, startTime
+
+struct  TileAnimationEntityIdData     위와 동일하나 EntityId + NativeArray  [6.4+]
+
+enum    TileFlags                     LockColor / LockTransform / InstantiateGameObjectRuntimeOnly
+
+enum    TileAnimationFlags            LoopOnce / PauseAnimation / UpdatePhysics / SyncAnimation
+
+enum    Tile.ColliderType             None / Sprite / Grid
+
+enum    Tilemap.Orientation           XY / XZ / YX / YZ / ZX / ZY / Custom
+
+class   RuleTile.TilingRuleOutput     출력부: sprites, gameObject, 출력 타입
+        └── RuleTile.TilingRule       + 이웃 조건(neighbors, 상대 position), 변환 규칙
+
+---
+
+ITilemap이 경계선
+
+타일은 자기가 붙은 Tilemap을 직접 못 만지고 ITilemap만 받아
+RefreshTile()로 갱신 요청만 낼 수 있는 구조
+
+---
+
+에디터 미리보기
+
+타일 구현에 "지금 에디터 미리보기 중인가" 분기를 넣게 할 수는 없다
+ITilemap이 그 분기를 대신 흡수한다
+타일은 그냥 `GetTile(pos)`을 부르고, 문맥에 맞는 답이 돌아온다
+
+브러시를 타일맵 위에 올리면 클릭 전에도 결과가 미리 보이는데, 
+이 미리보기 타일들은 진짜 Tilemap 데이터가 아니라 별도의 preview 레이어에 있다
+
+---
+
+Grid — "셀 하나가 어떤 모양이고 얼마나 큰가"만 정한다
+Tilemap — "(3, 5) 칸에 어떤 타일이 있는가"를 저장한다
+
+둘 다 GridLayout을 상속해서 CellToWorld() / WorldToCell()을 갖는데, 
+Grid는 좌표 변환만 하고 
+Tilemap은 거기에 저장소가 붙은 형태
+
+---
+
+왜 나눴나? 
+한 좌표계 위에 여러 데이터 레이어를 얹으려고
+
+Grid  (Cell Size 1×1, Layout: Rectangle)      ← 좌표계는 하나
+├── Tilemap "Background"                       Order in Layer 0
+├── Tilemap "Ground"  + TilemapCollider2D      Order in Layer 1, 충돌 담당
+├── Tilemap "Water"   + TilemapCollider2D      Order in Layer 2
+└── Tilemap "Decoration"                       Order in Layer 3
+
+지형과 장식을 분리해서 정렬 순서와 충돌을 따로 주려면 
+Tilemap이 여러 개여야 하는데, 
+
+좌표계까지 여러 개면 정렬이 어긋나. 
+그래서 좌표는 Grid에 한 번만 두는 거야
+
+---
+
+Rule Tile
+
+"이웃이 이런 모양이면 이 그림"이라는 규칙 목록을 들고 있는 타일
+
+TilingRule
+주변 8칸 각각에 조건: This(나와 같은 타일이어야 함) / NotThis(달라야 함) / 지정 안 함(무시)
+조건이 맞으면 출력할 스프라이트
+
+---
+
+Auto Tile
+
+Rule Tile은 규칙을 사람이 짠다. Auto Tile은 사람이 안 짠다
+유니티가 경우의 수를 번호로 매겨두고, 사용자는 "이 스프라이트는 몇 번" 만 지정하게
+
+주변 3×3을 훑으면서, 각 칸이 나와 같은 타일이면 해당 비트를 켜
+
+---
+
+GridBrush
+
+클릭 한 번에 어떤 셀들에 무엇을 쓸지 결정하는 ScriptableObject
+
+Paint, Erase, BoxFill, FloodFill, Pick, Select, Move, Rotate, Flip
+
+"픽해둔 타일 블록을 pivot 기준으로 그 자리에 그대로 찍어라".
+
+브러시가 하는 건 어디에 쓸지의 결정이고, 
+무엇을 그릴지는 타일이 정해
+
+---
+
+TileSet, Unity 6.1
+
+텍스처와 타일 asset 사이에 연결을 만드는 에디터 asset
+
+입력은 TextureSource 목록
+
+TextureSource {
+    Texture2D    texture       ← 원본 그림
+    TileTemplate tileTemplate  ← 이 그림에서 타일을 뽑는 방법 (없으면 기본)
+}
+
+---
+
+TileTemplate
+
+"이 텍스처에서 타일을 어떻게 뽑을 것인가"라는 정책을 담은 ScriptableObject
+
+TileSet이 "무엇을"이면 TileTemplate은 "어떻게"
+Strategy 패턴
+
+구현할 메서드
+
+public abstract void CreateTileAssets(
+    Texture2D texture2D,                 // 원본 텍스처
+    IEnumerable<Sprite> sprites,         // 슬라이스된 스프라이트 전부
+    ref List<TileChangeData> tilesToAdd  // 만들 타일 + 팔레트상 위치
+);
+
+---
+
+Texture2D ──┐
+            ├─→ TileSet ──(TileTemplate이 정한 방법으로)──→ Tile asset들 + Tile Palette
+TileTemplate┘                                                        │
+                                                                     ↓
+                                              GridBrush ──(어디에 쓸지)──→ Tilemap
+                                                                          │ 
+                                                                          ↓
+                                                                        Grid (좌표계)
+
+---
+
+런타임: Tilemap ──GetTileData(pos, ITilemap)──→ TileBase ──→ TileData(sprite/color/collider)
+                                                  └ Tile     : 고정값 반환
+                                                  └ RuleTile : 이웃 보고 규칙 매칭
+                                                  └ AutoTile : 이웃 보고 마스크 계산 후 조회
+
+---
+
+타일 아트는 보통 낱장이 아니라 한 장의 큰 텍스처로 온다. 
+벽·바닥·모서리가 격자로 빼곡히 들어찬 그림 파일 하나. 
+스프라이트 시트 또는 아틀라스
+
+슬라이스 = 그 텍스처 안에서 "여기부터 여기까지가 그림 한 장"이라고 경계를 긋는 작업.
+
+Sprite는 픽셀 복사본이 아니라 참조 정보 묶음
+
+Sprite = { 원본 Texture2D 참조,
+           그 안의 사각 영역 (rect),
+           pivot (회전·배치 기준점),
+           Pixels Per Unit (픽셀 → 월드 유닛 환산),
+           physics shape (충돌 외곽선) }
+
+---
+
+텍스처 파일은 여전히 하나고, 
+그 위에 Sprite 서브에셋이 여러 개 매달리는 구조야
+
+---
+
+Texture Type을 Sprite로, Sprite Mode를 Multiple로 두고
+Sprite Editor에서 자르면 돼.
+
+방식은 Automatic(투명 영역으로 자동 감지), 
+Grid By Cell Size, Grid By Cell Count, Isometric Grid, Polygon
+
+---
+
+TileTemplate.CreateTileAssets()가 받는 
+IEnumerable<Sprite> sprites가 이 슬라이스 결과
+
+슬라이스가 곧 타일 후보 목록
+
+---
+
+PPU와 Grid Cell Size
+
+16픽셀 타일을 PPU 16으로 임포트하면 스프라이트가 월드에서 1×1 유닛이 되고
+Grid Cell Size도 1×1이어야 딱 맞아
+
+여기가 어긋나면 타일 사이에 틈이 벌어지거나 겹친다
+
+---
+
+팔레트
+
+CreateNewPalette():
+    GameObject 생성
+    → Grid 컴포넌트 추가 (cellSize, cellLayout, cellSwizzle 설정)
+    → 자식으로 Tilemap 레이어 하나 생성
+    → .prefab 으로 저장
+    → GridPalette (ScriptableObject) 를 sub-asset 으로 붙임
+
+---
+
+Grid.cellSwizzle
+XYZ, XZY, YXZ, YZX, ZXY, ZYX
+
+격자 자체가 어느 평면에 눕는가
+셀 좌표를 3D 위치로 어떻게 매핑할지
+
+---
+
+Tilemap.orientation
+XY, XZ, YX, YZ, ZX, ZY,
+
+타일 그림 한 장 한 장이 어느 방향을 향하는가
+
+---
+
+격자는 바닥에 눕고(XZ), 타일도 바닥을 향함(XZ)
+  → 3D 게임의 탑다운 지형. 위에서 내려다보는 타일 바닥
+
+격자는 바닥에 눕고(XZ), 타일은 서 있음(XY)
+  → 바닥 격자 위에 세로로 선 스프라이트들. 2.5D 나무·풀·캐릭터
+
+격자도 세로, 타일도 세로(XY)
+  → 평범한 2D 플랫포머. 기본값
+
+---
+
+XY와 YX는 같은 평면이지만 어느 축이 가로고 어느 축이 세로인지가 반대
+평면만 고르는 게 아니라 방향까지 고르는 거지
+
+XY — 2D 게임 기본값
+XZ — 3D 씬의 바닥에 깔린 타일맵
+
+---
+
+Custom
+
+Offset / Rotation / Scale이
+임의의 행렬을 직접 만들 수 있어(Tilemap.orientationMatrix)
+
+Orientation은 타일마다 곱해지는 TRS 행렬 하나이고, 
+6개 preset은 자주 쓰는 행렬에 이름을 붙여둔 것
+
+---
+
+TileTemplate
+
+"타일을 어떻게 만들지" 지시
+결과물은 이게 만들어낸 Tile asset들
+
+---
+
+완성된 AutoTile 룰셋을 Save 버튼으로 TileTemplate으로 저장할 수 있다
+레이아웃이 같은 다른 텍스처를 쓰는 AutoTile에 이 TileTemplate을 Load하면 마스크를 다시 설정할 필요가 없다
+
+---
+
+class TextureSource {
+    Texture2D    texture;       // 재료
+    TileTemplate tileTemplate;  // 틀
+}
+
+재료마다 다른 틀을 댈 수 있고, 같은 틀을 여러 재료에 댈 수도 있어
+
+---
+
+mask는 비트 패턴으로 무언가를 걸러내는 것
+flags & 0b0100처럼 AND를 걸어서 원하는 비트만 통과시키고 나머지는 "가린다"
+
+class AutoTileDictionary : SerializedDictionary<uint, AutoTileData>
+                                              // ↑ 키가 uint 비트필드
+                                            
+주변 9칸의 상태를 mask |= 1 << index로 압축한 정수
+
+---
+
+파일 하나 안에 오브젝트 여러 개가 들어있는 구조
+하나가 main asset(루트)이고 나머지가 sub-asset
+
+파일 시스템은 "1파일 = 1개"인데, 
+논리적으로는 함께 태어나고 함께 죽어야 하는 오브젝트 묶음이 있어.
+
+FBX 파일 하나에 Mesh 여러 개 + Material + AnimationClip이 들어있는 것처럼
+이걸 따로따로 파일로 쪼개면 원본이 바뀔 때 동기화가 지옥이 돼
+
+---
+
+핵심 성질 — 생명주기 공유
+
+sub-asset은 부모 파일에 종속돼
+텍스처를 지우면 거기서 슬라이스한 Sprite들도 함께 사라져
+
+1) 슬라이스된 스프라이트
+
+walls.png (Texture2D)  ← main asset
+├── wall_0  (Sprite)   ← sub-asset
+├── wall_1  (Sprite)
+└── ...
+
+2) Tile Palette
+
+MyPalette.prefab (GameObject: Grid + Tilemap)  ← main asset
+└── GridPalette (ScriptableObject)             ← sub-asset (cellSizing, sortMode, sortAxis)
+
+3) TileSet — 생성한 Tile asset들과 Palette를 자기 sub-asset으로 품어.
+
+---
+
+┌─ 저작 시간 (에디터) ───────────────────────────────────────┐
+│                                                            │
+│  [원재료]                                                  │
+│   Texture2D ──슬라이스──▶ Sprite (sub-asset 여러 개)       │
+│       │                       │                            │
+│       └───────┬───────────────┘                            │
+│               ▼                                            │
+│  [생성 정책]                                               │
+│   TileSet                                                  │
+│     └ TextureSource { Texture2D + TileTemplate }           │
+│                            │                               │
+│              TileTemplate.CreateTileAssets(                │
+│                  texture, sprites, ref tilesToAdd)         │
+│                            ▼                               │
+│  [생성물]                                                  │
+│   Tile Asset 들          +      Tile Palette               │
+│                                 (Prefab: Grid + Tilemap)   │
+│                                  └ GridPalette (sub-asset) │
+│                                                            │
+│  [편집 도구]                                               │
+│   Brush (GridBrush)                                        │
+│     Paint / Erase / BoxFill / FloodFill / Pick / ...       │
+│     첫 인자가 GridLayout  ──▶ 씬의 Grid, 팔레트의 Tilemap  │
+│                               둘 다 받는다                 │
+└────────────────────────────────────────────────────────────┘
+                             │  브러시로 칠하면
+                             ▼
+┌─ 씬 ───────────────────────────────────────────────────────┐
+│  Grid          Cell Layout / Cell Size / Cell Swizzle      │
+│   └── Tilemap  Orientation, 셀→TileBase 저장소             │
+│        ├── TilemapRenderer    Mode, Sort Order             │
+│        └── TilemapCollider2D                               │
+└────────────────────────────────────────────────────────────┘
+                             │  매 프레임 / 갱신 시
+                             ▼
+┌─ 런타임 ───────────────────────────────────────────────────┐
+│  Tilemap ──GetTileData(pos, ITilemap, ref TileData)──▶     │
+│                                                            │
+│    TileBase 파생별 응답 방식:                              │
+│      Tile             고정값 그대로                        │
+│      AnimatedTile     GetTileAnimationData 로 시간 기반    │
+│      RuleTile         TilingRule 목록을 위에서부터 매칭    │
+│      AutoTile         이웃 9칸 → uint mask → 사전 조회     │
+│      RuleOverrideTile 원본 RuleTile 결과에 교체 적용       │
+│                            │                               │
+│                            ▼                               │
+│    TileData { sprite, color, transform(Matrix4x4),         │
+│               gameObject, flags(TileFlags), colliderType } │
+└────────────────────────────────────────────────────────────┘
+
+---
+
+아티스트가 dungeon_walls.png를 넘겨줬어. 
+안에는 벽 조각 16개가 4×4로 들어있지. 
+유니티 입장에서 이건 아직 Texture2D 하나일 뿐이야
+
+그래서 슬라이스를 해. "이 텍스처의 (0,0)부터 (16,16)까지가 그림 한 장, 그 옆이 또 한 장"
+이때 만들어지는 게 Sprite
+Sprite는 잘라낸 픽셀 복사본이 아니야. "저 텍스처의 저 영역"이라는 참조
+
+이 Sprite 16개는 독립된 파일이 아니라 텍스처 파일 안에 서브에셋으로 매달려
+텍스처를 지우면 같이 사라지고, 다시 슬라이스하면 통째로 갈리는 종속 관계
+
+---
+
+재료를 타일로 바꾸기 — Tile Set과 Tile Template
+
+이제 이 스프라이트 16장을 Tile Asset으로 바꿔야 해
+Tile Asset은 "타일맵 위에 놓을 수 있는 것"
+
+스프라이트는 그냥 그림이고, 
+타일은 게임 로직을 가질 수 있는 존재
+
+---
+
+옛날엔 이 변환이 일회성
+팔레트 창에 텍스처를 드래그하면 유니티가 스프라이트 하나당 타일 하나를 만들어주고 끝
+아티스트가 그림을 수정하면 그 관계가 끊긴다는 거
+타일을 다시 만들고, 팔레트를 다시 채우고, 씬에 다시 칠해야
+
+---
+
+유니티 6.1에 Tile Set이 들어왔어
+Tile Set은 "이 텍스처를 재료로 타일을 만들어라"라는 지속되는 지시
+
+텍스처가 바뀌면 Tile Set이 다시 굴러가서 타일을 새로 만들고, 
+팔레트와 이미 씬에 배치된 타일맵까지 갱신
+
+타일들이 Tile Set 안에 종속돼 있으니까 통째로 갈아끼울 수 있거든
+
+---
+
+그런데 Tile Set 혼자서는 "어떻게" 만들지를 몰라
+기본 동작은 스프라이트 하나당 타일 하나인데, 항상 그게 맞진 않아
+돌벽 16장은 하나의 Auto Tile로 묶여야지 타일 16개가 되면 안 되잖아
+
+---
+
+그래서 Tile Template이 필요
+이건 "이 텍스처에서 타일을 뽑는 방법"을 담은 정책 객체
+Tile Set 안에는 텍스처와 템플릿이 짝으로 저장
+
+---
+
+Tile Set 내부에서 텍스처와 템플릿의 짝을 부르는 말이 TextureSource
+
+---
+
+TileBase
+
+가장 단순한 Tile은 "나는 이 스프라이트야"라고 고정된 답만 해. 
+Animated Tile은 시간을 봐서 답을 바꿔. 
+여기까지는 이웃을 신경 안 써.
+
+---
+
+Rule Tile부터 달라져
+
+얘는 규칙 목록을 들고 있어.
+규칙 하나는 "위쪽에 나와 같은 타일이 없고, 좌우에는 있으면 → 이 스프라이트"
+화면에 그려질 때마다 목록을 위에서부터 훑어서 처음 맞는 규칙의 스프라이트를 쓰지
+그래서 팔레트에서 타일 하나만 칠해도 윗면·모서리·속이 알아서 나뉘어 그려져
+
+---
+
+Auto Tile은 Rule Tile의 다음 세대
+
+Rule Tile은 규칙을 사람이 짜야 하는데, 
+벽이나 바닥 같은 지형은 필요한 경우의 수가 이미 정해져 있거든
+
+그래서 유니티가 그 경우의 수에 번호를 매겨두고, 
+사용자는 "이 그림은 몇 번" 하고 배치만 하게 만들었어
+
+그 번호가 mask
+
+주변 아홉 칸 중 어디에 나와 같은 타일이 있는지를 비트로 적은 정수
+데이터 구조가 문자 그대로 Dictionary<uint, Sprite목록>
+
+---
+
+타일을 담아두는 서랍 — Tile Palette
+팔레트는 사실 Prefab
+안에 Grid 컴포넌트 하나와 Tilemap 하나가 들어있는 작은 씬
+즉 타일 "목록"이 아니라 타일 "배치"
+
+Tilemap을 그대로 재사용
+팔레트 창의 편집 도구와 씬의 편집 도구가 똑같은 코드로 돌아
+
+벽 타일셋을 실제 벽 모양대로 (윗변은 위쪽에, 모서리는 모서리 자리에) 늘어놓으면 눈으로 보고 고를 수 있고, 
+여러 칸을 한꺼번에 집어서 블록 단위로 찍을 수도 있어. 
+단순 리스트였으면 불가능
+
+---
+
+팔레트 창은 프리팹을 실제 인스턴스화해서 `paletteInstance`로 들고 있고, 
+거기서 `GetComponent<Grid>()`와 `GetComponentInChildren<Tilemap>()`으로 컴포넌트를 꺼낸다. 
+
+`PreviewRenderUtility`의 Camera로 렌더링하고 
+`Handles.SetCamera()`로 기즈모까지 그린다. 
+
+인스턴스에 달린 `Renderer`들을 모아 렌더링하며, 
+편집 시 `Undo.RegisterFullObjectHierarchyUndo(paletteInstance, "Edit Palette")`로 
+GameObject 계층 전체에 대한 진짜 Undo를 건다.
+
+GameObject 계층, 컴포넌트, 카메라, Undo, 그리고 씬용 편집 도구가 그대로 동작한다
+
+다른 점은 하이어라키 창에 안 보이고 빌드에 포함되지 않는다는 것
+
+---
+
+Brush / GridBrush
+
+이제 팔레트에서 타일을 집어 씬에 칠할 차례인데
+"어떻게 칠할지"를 담당하는 게 Brush
+
+---
+
+둘은 부모-자식 관계로 씬에 놓이지만, 클래스로는 형제
+둘 다 GridLayout이라는 추상 클래스를 상속
+
+---
+
+씬에서 칠할 땐 씬의 Grid가 넘어오고 팔레트에서 칠할 땐 팔레트의 Tilemap이 넘어온다 (X)
+
+=>
+
+씬 뷰에서는 `brushTarget.GetComponentInParent<Grid>()`
+팔레트에서는 `paletteInstance.GetComponent<Grid>()`
+브러시 인스펙터 미리보기에서는 `previewInstance.GetComponent<Grid>()`
+
+---
+
+실행 중 남는 건 Grid, Tilemap, Tile Asset, 그리고 렌더러와 콜라이더
+
+Tilemap이 어떤 칸을 그려야 할 때 그 칸의 타일에게 "너 어떻게 생겼니?" 하고 물어봐
+타일은 TileData라는 구조체를 채워서 돌려줘
+
+어떤 스프라이트를 쓸지, 무슨 색으로 물들일지, 어떤 변환 행렬을 적용할지
+콜라이더는 어떤 모양으로 만들지, 그리고 TileFlags
+
+---
+
+TileFlags는 "이 값을 잠글까 말까"를 정하는 플래그 묶음
+
+LockColor가 켜져 있으면 타일맵 쪽에서 그 칸의 색을 개별로 바꾸려 해도 무시
+Rule Tile이나 Auto Tile은 자기가 계산한 결과가 덮어씌워지면 안 되니까 보통 잠금을 걸어둬
+
+---
+
+타일이 Tilemap을 직접 못 만진다는 것
+질문을 받을 때 넘어오는 건 ITilemap
+
+GetTile, GetSprite, GetColor, GetTileFlags, ...
+RefreshTile, RefreshTiles
+
+---
+
+`GridLayout.CellLayout` 열거형
+
+`Rectangle`, `Hexagon`, `Isometric`, `IsometricZAsY` 네 개
+육각형은 그냥 `Hexagon` 하나이고 방향 구분이 없다
+
+Point Top과 Flat Top은 `cellSwizzle`
+
+---
+
+유니티는 `Dictionary`를 직렬화하지 못한다
+
+`SerializedDictionary<TKey, TValue>`는 `ISerializationCallbackReceiver`를 구현해서, 
+저장 직전에 사전을 `keyData`·`valueData` 두 개의 평행 리스트로 펼치고, 
+역직렬화 직후에 사전으로 재조립한 뒤 리스트를 비운다. 
+
+디스크에는 리스트로, 메모리에는 사전으로 존재하는 구조
+
+---
+---
+---
+
+Auto Tile
+"내 이웃이 나와 같은 타일인가"만 물어봐
+"이웃이 저 특정 타일이면" 규칙을 손으로 짜야 하는데, 타일 종류가 N개면 전이 조합이 N² 방향으로 늘어
+Godot이 terrain set으로 정면 해결한 문제를 유니티는 아직 안 건드렸어
+
+---
+
+런타임 저작이 이등 시민
+런타임에 생성한 던전을 세이브하려면 직접 짜야 해
+
+---
+
+관리 코드 콜백 경로
+
+GetTileData()는 C# 가상 메서드 호출
+타일 10만 개를 RefreshAllTiles()하면 관리 코드가 10만 번
+
+절차적 생성으로 큰 맵을 한 번에 만들 때 프레임이 튀는 원인
+
+---
+
+무한 맵과 스트리밍이 없다
+
+cellBounds는 커지기만 하고 청크 페이징 API가 없어
+내부적으로는 청크 단위로 렌더링하고 컬링하는데
+그 청크를 사용자가 로드/언로드할 수단이 노출되어 있지 않아
+
+2D 오픈월드를 만들면 결국 Tilemap GameObject를 여러 개 두고 직접 켜고 끄는 방식으로 가게 돼
+
+---
+
+논리와 시각이 분리되지 않는다
+
+유니티에서 타일 하나는 "여기가 벽이다"라는 논리와 "이 그림이다"라는 시각을 겸해. 
+그래서 던전 벽 아트를 돌에서 얼음으로 바꾸려면 
+배치를 다시 하거나 Rule Override Tile로 우회해야 해
+
+---
+
+3D 타일이 없다
+
+메시를 격자에 배치하는 시스템이 유니티엔 없어
+
+---
+
+EntityId 경로의 확장
+
+managed object reference 대신 EntityId를 쓴다
+InstanceID를 EntityId로 갈아치웠고
+
+managed reference를 데이터 경로에서 걷어내는 중이야
+Burst와 Job에서 타일 데이터를 만지게 하겠다는 거지
+그 끝에는 ECS가 있어
+
+---
+
+NonAlloc 계열의 증식
+
+GC 압박을 줄이려는 전형적인 패턴
+대량 타일 조작을 상정한 API
+
+---
+
+Terrain 전이 시스템이 온다
+
+== this가 == this || 지정된 다른 타일 형태로 확장
+Godot이 이미 증명한 기능이고, Auto Tile 인프라가 이미 깔려 있어서 
+마스크 계산에 "이웃 타일 → terrain ID" 매핑 한 겹만 얹으면
+
+가장 낮게 매달린 열매
+
+---
+
+Tilemap의 Job 경로
+
+TileData를 채우는 방식이 ref TileData를 받는 managed 가상 호출 대신, 
+NativeArray<TileData>를 채우는 Burst 함수 포인터 형태로 병행 제공
+
+---
+
+Tile Set이 마스크를 자동 추론
+
+지금은 텍스처를 넣고 사용자가 마스크를 칠하는데, 
+47-blob이나 16-corner는 업계 표준 레이아웃이 몇 개 안 돼
+
+텍스처를 보고 "이건 표준 blob 레이아웃이네" 하고 자동으로 마스크를 붙여주는 건 어렵지 않아
+
+---
+
+이상적인 타일맵 패키지
+
+첫째, 논리 레이어와 시각 레이어를 분리한다
+디자이너는 "여기가 벽, 여기가 물"이라는 의미만 칠하고, 그림은 규칙이 자동으로 결정해
+아트를 통째로 갈아도 레벨 데이터는 그대로
+
+---
+
+둘째, 저작 시간과 실행 시간이 대칭
+
+브러시, 팔레트, 규칙 평가가 전부 런타임에서도 같은 API로 돌아
+에디터는 그 API의 첫 번째 소비자일 뿐이고
+
+---
+
+셋째, 청크가 일급 개념이다
+
+청크가 렌더링 단위이자 저장 단위이자 네트워크 동기화 단위이자 스트리밍 단위
+
+넷째, 규칙이 텍스트로 diff 가능하다
+
+지금 Rule Tile은 ScriptableObject 바이너리라 팀 작업에서 머지 지옥
+규칙이 JSON이나 YAML이면 코드 리뷰가 되고 프로그램으로 생성할 수도 있어
+
+---
+
+다섯째, 타일 데이터는 unmanaged, 규칙 평가는 job. 
+백만 칸짜리 맵을 프레임 드랍 없이 생성할 수 있어야 해.
+
+여섯째, 전이(transition)를 이웃 매칭이 아니라 제약 만족으로 
+"이웃이 이러면 이 그림"인데, 실은 "이 타일 옆에는 이 타일들만 올 수 있다"는 인접성 규칙을 선언하면 
+배치가 자동으로 풀리는 게 더 강력
+
+---
+
+다른 솔루션
+
+Godot 4
+
+terrain set과 peering bit
+각 타일에 "내 위쪽 변은 잔디, 오른쪽 변은 흙" 같은 정보를 심어두면, 
+칠할 때 엔진이 이웃을 보고 가장 잘 맞는 타일을 골라
+
+서로 다른 지형 사이의 전이가 기본 기능
+
+Match Corners and Sides면 8비트, Match Sides Only면 4비트
+
+그리고 3D용 GridMap이 별도로 있어
+
+---
+
+Tiled
+외부 에디터의 사실상 표준
+
+포맷(TMX)이 완전히 개방적이라 어떤 엔진으로든 임포트할 수 있
+Wang set으로 전이도 지원
+강점은 엔진 중립성과 성숙도
+약점은 엔진 통합이 전부 서드파티라 툴 왕복이 생긴다
+
+---
+
+LDtk
+
+IntGrid로 논리 레이어를 시각 레이어와 분리하고
+
+Auto-layer rule 편집기가 유니티 Rule Tile 인스펙터와 비교가 안 되게 잘 만들어져 있고 
+(다중 컬럼 뷰, 규칙 그룹, Optional 규칙으로 바이옴/변주 구성)
+
+프로젝트 파일이 JSON이라 diff와 프로그램 생성이 가능해
+
+---
+---
+---
+
+Expert 보드가 30×16 = 480칸이야. 
+이 정도면 개별 SpriteRenderer 480개도 SRP Batcher가 다 묶어서 아무 문제 없어. 
+Tilemap의 청크 배칭이 이기기 시작하는 건 만 칸 단위부터
+
+셀마다 개별 트윈을 걸어야 하는데 Tilemap 위에서 그걸 하려면 
+TileFlags 잠금을 풀고 SetColor/SetTransformMatrix를 매 프레임 갈아야 해서 시스템과 싸우게 돼
+
+반대로 무한 보드나 거대 보드를 노린다면 Tilemap이 확실히 이겨. 
+WorldToCell이 카메라 줌/팬을 알아서 처리해주는 것만으로도 값을 하고.
+
+---
+
+개별 SpriteRenderer + 풀링
+
+셀마다 GameObject를 하나(또는 둘) 두는 가장 직관적인 방식
+
+규모 감각을 잡으면 — Expert가 480칸이고, 가림막과 내용물을 분리하면 960개
+이 정도는 유니티에서 아무것도 아니야
+
+같은 머티리얼을 쓰면 SRP Batcher가 다 묶어버려서 드로우콜도 몇 개 안 나와
+50×50 커스텀 모드를 넣어도 2,500칸, 5,000개 오브젝트고 여전히 여유로워
+
+최대 강점은 셀마다 독립적으로 연출을 걸 수 있다는 거야
+열릴 때 살짝 튀어오르고, 깃발 꽂을 때 흔들리고, 지뢰가 터질 때 파편이 날아가고
+캐스케이드가 중심에서 파도처럼 퍼져나가는 것
+
+이런 게 지뢰찾기의 손맛을 만드는데, 
+각 셀이 독립된 Transform을 갖고 있으면 그냥 트윈 하나 거는 걸로 끝나.
+
+약점은 만 칸을 넘어가면 관리 비용이 생긴다는 것 정도야.
+
+---
+
+Tilemap
+
+시스템의 20%만 쓰게 돼. 
+얻는 건 청크 배칭과 WorldToCell이고, 
+치르는 대가는 셀별 연출이 어려워진다는 거야
+
+Tilemap 위에서 개별 셀을 애니메이션시키려면 
+TileFlags.LockColor와 LockTransform을 풀고 
+매 프레임 SetColor와 SetTransformMatrix를 갈아야 해
+
+되긴 되는데 시스템이 원래 의도한 사용법이 아니라서 코드가 지저분해지고, 대량으로 하면 오히려 느려
+Tilemap은 "한 번 칠하면 잘 안 바뀌는 배경"에 최적화된 물건
+
+만 칸 이상을 진짜로 다룰 때 진가가 나와
+무한 모드나 100×100 같은 걸 계획한다면 이쪽
+
+---
+
+셀에 Collider를 붙이지 마
+격자니까 그냥 나눗셈으로 구하면 돼
+
+cellX = floor((worldPos.x - origin.x) / cellSize)
+cellY = floor((worldPos.y - origin.y) / cellSize)
+
+Tilemap을 쓰면 WorldToCell이 이걸 대신 해주는데, 안 써도 세 줄이야
+
+---
+
+숫자를 TextMeshPro로 만들지 마.
+480개 TMP 컴포넌트는 무겁기도 하고 아트 통제도 안 돼. 
+1부터 8까지는 스프라이트로 넣어.
+
+---
+
+셀 하나를 두 레이어로 나눠
+
+아래에 내용물(빈칸/숫자/지뢰)
+위에 가림막(닫힌 셀 + 깃발)
+
+이렇게 하면 "열림"이 곧 "가림막을 치우는 것"이 돼서, 
+가림막만 페이드시키거나 뒤집거나 부수는 연출이 자유로워져
+
+---
+
+셀 안에서 완결되는 연출은 Tilemap이 합니다. 
+셀 경계를 넘는 연출만 SpriteRenderer나 파티클이 맡습니다.
+
+덮개가 사라지는 애니메이션이 필요하다면, 
+Tilemap에서 Cover 타일을 즉시 지우고 
+같은 자리에 같은 스프라이트를 쓰는 SpriteRenderer를 놓습니다. 
+그게 스케일 다운과 페이드 아웃을 하고 끝나면 반납됩니다.
+
+---
+
+chunkSize가 튜닝 손잡이
+
+캐스케이드는 넓게 번지니까 여러 청크를 건드려. 
+
+청크가 크면 한 칸 바뀔 때 재빌드하는 정점 수가 많아지고, 
+청크가 작으면 재빌드는 싸지지만 드로우콜이 늘어
+
+---
+
+셀 사이 간격은 격자가 아니라 스프라이트에 그린다
+
+모던한 지뢰찾기 룩은 셀 사이에 얇은 틈이 있잖아. 
+이걸 Grid.cellGap으로 만들고 싶어지는데, 하지 마.
+
+cellGap을 주면 셀과 셀 사이에 어느 셀에도 속하지 않는 죽은 영역이 생겨. 
+손가락으로 찍었을 때 그 틈에 떨어지면 아무 반응이 없어.
+
+셀은 빈틈없이 붙이고(gap = 0), 여백은 스프라이트 안쪽에 투명 영역으로 그려
+그러면 시각적으로는 틈이 있는데 히트 영역은 전체를 덮어
+
+---
+
+상태는 즉시, 연출은 잔상
+
+탭이 들어오면 게임 상태는 그 프레임에 바뀌어야 해. 
+애니메이션이 끝난 뒤에 상태를 바꾸면, 
+사용자가 빠르게 연타할 때 입력이 꼬여. 
+지뢰찾기는 초당 여러번 탭하거든
+
+---
+
+orthographicSize의 최소·최대를 숫자로 하드코딩하면 기기마다 손맛이 달라져
+기준을 mm로 잡아
+
+최대 확대(가장 크게)  = 셀이 화면에서 약 9mm  ← 터치 타겟 최소 크기
+최소 축소(가장 작게)  = 보드 전체가 가용 영역에 들어옴
+
+Screen.dpi가 0을 반환하는 기기가 있어서 폴백이 필요해
+안드로이드에서는 정확한 값이 아니라 densityDpi라는 구간 버킷을 돌려주기도 하고.
+
+---
+
+보드가 화면 밖으로 날아가지 않게 카메라를 가두는데, 
+순진하게 하면 줌 아웃했을 때 이상해져. 
+보드가 화면보다 작은 축에서는 클램프가 아니라 중앙 고정이어야 해.
+
+---
+
+캐스케이드는 거리 기반 스태거 + 총 시간 고정 + 화면 밖 생략
+
+빈 칸 하나를 열었는데 200칸이 동시에 팟 하고 나타나면 밋밋해. 파도처럼 퍼져야 시원하지
+
+BFS를 돌 때 깊이를 같이 기록하면 공짜야. 시작 셀에서 몇 단계 떨어졌는지가 곧 지연 시간이 돼
+
+총 지속시간을 고정해. 깊이에 비례해서 지연을 주면 큰 영역이 열릴 때 마지막 칸이 2초 뒤에 열려서 답답해져
+최대 깊이로 정규화해서 전체가 0.3~0.4초 안에 끝나게 해
+5칸이 열리든 500칸이 열리든 걸리는 시간은 같고, 퍼지는 속도만 달라져
+
+---
+
+테마 전환은 Tilemap.SwapTile
+
+tilemap.SwapTile(oldTile, newTile);
+
+---
+
+Tilemap의 쓰기 API는 전부 런타임 API
+SetTile, SetTiles, SetTilesBlock, ClearAllTiles
+
+시스템의 저작 절반을 안 쓴다는 것뿐
+
+안 씀 :  Tile Palette, Brush, Tile Set, Tile Template, GridPalette
+씀    :  Grid, Tilemap, Tile, SetTiles / SetTilesBlock / ClearAllTiles
+
+---
+
+마찰 1 — 코드가 Tile 에셋을 어떻게 참조하나
+
+코드가 "이 칸에 숫자 3 타일을 놔"라고 말하려면 
+그 Tile 에셋에 대한 참조가 있어야 하는데, 어디서 오느냐
+
+테마 ScriptableObject가 매핑을 소유하는 것
+
+[SerializeField] private TileBase m_Covered;
+[SerializeField] private TileBase m_Flag;
+[SerializeField] private TileBase m_Question;
+[SerializeField] private TileBase m_Empty;
+[SerializeField] private TileBase[] m_Numbers;      // 1~8
+[SerializeField] private TileBase m_Mine;
+[SerializeField] private TileBase m_MineExploded;
+[SerializeField] private TileBase m_WrongFlag;
+
+---
+
+Tile 에셋 없이
+
+Tile은 그냥 sprite, color, flags, colliderType 필드를 가진 ScriptableObject라서 런타임에 만들 수 있어
+
+var tile = ScriptableObject.CreateInstance<Tile>();
+tile.sprite = sprite;
+tile.color = color;
+tile.colliderType = Tile.ColliderType.None;
+
+그러면 테마가 Tile 에셋 15개가 아니라 Sprite 15장 + Color 8개만 들고,
+로드할 때 래퍼를 만들어 쓰면 돼. 
+
+테마가 여러 개일 때 유리
+테마 3개면 Tile 에셋이 45개가 되는데, 
+이 방식이면 스프라이트는 공유하고 색만 다른 테마를 만들 수 있으니까.
+
+다만 에디터에서 미리보기가 안 되고 
+인스턴스 수명을 관리해야 해서, 테마가 하나둘일 때는 그냥 에셋 15개 만드는 게 편해
+
+---
+
+마찰 2 — 에디터에서 보드가 안 보인다
+
+디버그 채우기 버튼
+// BoardView::FillDebugBoard — 에디터에서 가짜 보드를 채워 눈으로 검증
+[ContextMenu("Fill Debug Board")]
+
+랜덤이든 고정 패턴이든 상관없어
+숫자 1~8이 전부 나오고, 깃발과 지뢰가 섞여 있고
+일부는 덮여 있고 일부는 열려 있는 보드 하나면 돼.
+
+---
+
+마찰 3 — Tile 에셋은 공유 인스턴스다
+
+지뢰찾기에서 셀마다 다른 색이나 스케일을 주고 싶어질 때 실수하기 쉬운 지점
+
+tile.color = ... 처럼 Tile 에셋의 필드를 런타임에 건드리면 안 돼
+그건 그 타일이 놓인 모든 칸에 동시에 적용되고, 
+에디터에서는 에셋 파일이 영구적으로 더러워져
+
+셀별 변경은 Tilemap 쪽 API를 써야 해.
+tilemap.SetColor(pos, color);
+tilemap.SetTransformMatrix(pos, matrix);
+
+그런데 이게 먹히려면 그 Tile의 flags에서 LockColor와 LockTransform이 빠져 있어야 해.
+잠겨 있으면 Tilemap 쪽 지정이 무시되거든
+
+---
+
+30×16 보드에 480칸이 있어도 Tile 객체는 여전히 15개야. 
+같은 Tile 객체 하나를 480칸이 참조로 공유해
+
+Tilemap 셀에 타일을 배치한다 →  보드마다
+
+Tile 인스턴스 15개        Tilemap 셀 480개
+ (종류 = 어떤 그림들이 있나)   (배치 = 어느 칸이 어느 종류인가)
+
+---
+
+private static Tile CreateTile(Sprite sprite, Color color)
+
+ScriptableObject라서 수명 관리가 필요
+앱 전체를 사는 서비스가 들고 있다가 OnDestroy에서 정리
+게임을 새로 시작할 때마다 다시 만들면 계속 쌓여
+
+---
+
+Grid                     좌표계 (셀 모양·크기·스위즐)
+└── Tilemap              셀 저장소
+    ├── TilemapRenderer  청크 메시 생성 + 캐시
+    └── TilemapCollider2D 콜라이더 생성 (선택)
+
+Tilemap 내부 서브시스템
+├── 셀 데이터 저장소
+├── 에디터 프리뷰 레이어  (병렬 세계)
+├── 타일 애니메이션
+└── GameObject 인스턴스화
+
+---
+
+셀 하나에 저장되는 것 — 입력과 출력이 나뉘어 있다
+
+GetTile / SetTile                        ✓ 읽기 쓰기 둘 다
+GetColor / SetColor                      ✓
+GetTransformMatrix / SetTransformMatrix  ✓
+GetTileFlags / SetTileFlags              ✓
+GetColliderType / SetColliderType        ✓
+
+GetSprite                                ← 읽기만, SetSprite가 없다
+
+---
+
+스프라이트는 저장하는 게 아니라 계산된 결과
+스프라이트는 TileBase.GetTileData()가 응답한 값이고, 
+Tilemap은 그걸 캐시해둘 뿐 사용자가 직접 못 써.
+
+---
+
+에디터 프리뷰 레이어  (병렬 세계)
+
+SetTile              ↔  SetEditorPreviewTile
+GetTile              ↔  GetEditorPreviewTile
+BoxFill              ↔  EditorPreviewBoxFill
+FloodFill            ↔  EditorPreviewFloodFill
+...
+
+---
+
+경계 관리
+
+Tilemap은 무한 좌표계처럼 보이지만 실제로는 유효 범위를 추적해
+
+origin       타일이 실제로 놓인 영역의 시작 셀 좌표
+size         그 영역의 크기
+cellBounds   위 둘을 합친 BoundsInt
+localBounds  같은 것을 로컬 공간 Bounds로
+
+---
+
+특정 위치에 행이나 열을 삽입하면 뒤쪽 타일들이 통째로 밀려.
+
+InsertCells(position, numColumns, numRows, numLayers);
+DeleteCells(position, ...);
+
+---
+
+청크 — TilemapRenderer
+
+셀은 GameObject가 아니야. 
+렌더러가 여러 타일을 하나의 메시로 합쳐서 그려.
+그 합치는 단위가 청크고, 손잡이가 셋 있어
+
+chunkSize       청크 하나에 타일 몇 개가 들어가나
+maxChunkCount   메모리에 캐시할 청크 메시의 최대 개수
+maxFrameAge     안 쓰이는 청크를 몇 프레임까지 들고 있나
+
+화면 밖으로 나간 청크는 메시를 버리고, 다시 들어오면 재생성
+거대 맵에서 메모리를 제한하는 손잡이
+
+---
+
+청크 하나는 실제로 정점 배열 하나, UV 배열 하나, 색 배열 하나야
+타일이 사각형이니 정점 4개씩
+
+그래서 셀 하나만 바뀌어도 그 셀이 속한 청크 전체를 다시 만들어 GPU에 올려야 해
+이게 SetTile을 하나씩 부르면 안 되는 이유고, chunkSize를 조절하면 그 재빌드 단위가 바뀌는 거지.
+
+---
+
+Tilemap의 어휘에서는
+null이 "이 칸에 타일이 없다"의 정식 표현이야
+
+GetTile(pos)        타일이 없으면 null 반환
+HasTile(pos)        null 여부를 묻는 전용 API
+ClearAllTiles()     내부적으로 전부 null
+GetUsedTilesCount() null 칸은 세지 않음
+
+---
+
+API 전체가 "null = 부재"를 전제로 짜여 있어
+그러니까 SetTile(pos, null)은 관례를 비트는 게 아니라 
+이 자료구조가 제공하는 유일한 '지우기' 연산이야
+
+---
+
+읽기 힘든 건 null 자체가 아니라 SetTile(pos, null)이라는 구문이 의도를 말하지 않는다는 점이야
+그 구문이 게임 코드에 안 나오게 하면 돼
+
+public TileBase CoverTileFor(in Cell cell)
+{
+    if (cell.IsRevealed)             return null;   // 열린 칸에는 덮개가 없다
+    if (cell.Mark == Mark.Flag)      return m_Flag;
+    if (cell.Mark == Mark.Question)  return m_Question;
+    return m_Covered;
+}
+
+---
+
+"이 칸이 열렸나"를 알고 싶으면 모델에게 묻지 Tilemap에게 묻지 않아
+Tilemap은 쓰기 전용 출력 장치인 셈이야
+
+---
+
+열린 영역이 하나의 매끈한 덩어리처럼 보이게 하려면, 
+열린 칸에도 실제로 그려지는 무언가가 있어야 하거든
+
+Cover        (위)   덮개 / 깃발 / 물음표     — 열린 칸은 null
+Content      (중)   숫자 / 지뢰
+RevealedBg   (아래) 파인 영역 AutoTile       — 덮인 칸은 null
+
+각 레이어에서 null은 "이 레이어는 이 칸에 관여하지 않는다"를 뜻해
+
+---
+
+GridLayout — "격자 좌표계"라는 개념
+Grid — 그 좌표계의 씬 구현체
+Tilemap — 같은 좌표계 인터페이스를 갖되 저장소가 붙은 것
+
+셀 — 좌표계 위의 한 좌표. 타입이 아니라 Vector3Int
+타일 — 셀이 가리킬 수 있는 에셋. 그림이 아니라 그림을 응답하는 함수
+
+칸 — 지뢰찾기 도메인의 논리 단위
+
+---
+
+Tilemap.cellBounds는 셀의 범위가 아니라 타일이 놓인 범위야
+이것은 배치된 타일만 고려한다
+
+빈 셀도 셀이야
+존재하는데 비어 있는 거
+
+셀은 인스턴스화되지 않아
+좌표 480개가 유효할 뿐이고, 
+그 좌표들에 대한 데이터가 Tilemap 내부 배열에 있는 거
+
+---
+
+타일 — 에셋이자 함수
+
+TileBase가 요구하는 건 GetTileData(position, ITilemap, ref TileData) 하나뿐
+이건 "이 자리에서 너는 어떻게 보이니?"라는 질문
+
+Tile은 고정값을 돌려주고, 
+RuleTile은 이웃을 보고 고르고, 
+AutoTile은 마스크를 계산해 사전을 찾아
+
+전부 같은 질문에 다른 방식으로 답할 뿐
+
+---
+
+칸
+
+지뢰가 있는지, 열렸는지, 깃발이 꽂혔는지, 인접 지뢰가 몇 개인지
+이 정보를 가진 논리적 단위
+
+---
+
+칸 (3,5) 하나
+ ├── Cover 타일맵의 셀 (3,5)      ← 덮개 / 깃발 / 물음표
+ ├── Content 타일맵의 셀 (3,5)    ← 숫자 / 지뢰
+ └── (모던 룩이면) RevealedBg의 셀 (3,5)
+
+---
+
+Grid
+이 도시의 블록은 몇 미터인가, 격자는 사각형인가 육각형인가, 번지는 어느 축 순서로 매기는가
+건물이 있든 없든 주소 체계는 존재
+
+Tilemap
+"3가 5번지에 무엇이 서 있나"를 기록
+번지는 비어 있을 수 있고, 비어 있다고 번지가 없어지는 건 아니야
+같은 표준 설계도로 지은 건물이 수백 채일 수 있어
+설계도는 한 장이고 번지들이 그걸 가리키는 거지
+
+---
+
+유니티가 상속을 택한 건 순수한 모델링 판단이 아니라 실용적 이유로 보여
+
+포함이었다면 Tilemap이 CellToWorld, WorldToCell, CellToLocal, LocalToCell, GetBoundsLocal 같은 걸 전부 
+grid.XXX(...)로 넘기는 위임 메서드로 다시 써야 했을 거야
+
+즉 "안다"를 "이다"로 모델링한 거야
+
+---
+
+씬 구조
+
+Board      ◆ Grid
+ ├── Content    ◆ Tilemap  ◆ TilemapRenderer
+ └── Cover      ◆ Tilemap  ◆ TilemapRenderer
+ 
+---
+
+여러 Tilemap이 하나의 Grid를 공유해야
+
+---
+
+GameObject 하나당 같은 컴포넌트는 하나뿐이니까, 
+"여럿이 하나를 공유"를 표현하려면 계층을 쓸 수밖에 없어.
+
+---
+
+클래스 상속 계층     
+
+  GridLayout                  Board      ◆ Grid
+   ├── Grid                    ├── Content    ◆ Tilemap  ◆ TilemapRenderer
+   └── Tilemap                 └── Cover      ◆ Tilemap  ◆ TilemapRenderer
+                     
+
+  상속으로는 형제               씬으로는 부모-자식
+
+상속으로는 대등한 형제인데, 씬에서는 한쪽이 다른 쪽 위에 얹혀 있어
+
+---
+
+"부모가 문맥을 제공하고 자식들이 공유하는" 구조
+
+Canvas가 부모에, Image/Text가 자식에
+자식들이 부모의 렌더 모드와 스케일 설정을 따름
+
+Rigidbody2D가 부모에, Collider2D 여럿이 자식에
+하나의 물체로 묶임
+
+LODGroup이 부모에, Renderer들이 자식에
+
+---
+
+Hierarchy 창 — GameObject만 보인다
+
+Board
+├── Content
+└── Cover
+
+여기엔 컴포넌트가 아예 안 나와
+Grid도 Tilemap도 안 보여
+
+---
+
+Inspector 창 — 선택한 GameObject의 컴포넌트가 보인다
+
+Board 선택    →  Transform, Grid
+Content 선택  →  Transform, Tilemap, TilemapRenderer
+Cover 선택    →  Transform, Tilemap, TilemapRenderer
+
+---
+
+Board 는 "격자판이다"         ← Grid 컴포넌트가 그렇게 만듦
+Content 는 "그 판 위의 층"    ← 부모가 판이라서 판 위에 있게 됨
+Cover 도  "그 판 위의 층"
+
+---
