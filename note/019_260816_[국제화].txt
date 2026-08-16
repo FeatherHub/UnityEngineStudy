@@ -1,0 +1,774 @@
+1. ~2018
+
+Application.systemLanguage + SystemLanguage enum
+OS 언어를 읽는 것이 전부
+
+AssetBundle Variant
+언어별 에셋 교체에 쓰이던 엔진 차원 메커니즘
+
+실제 워크플로는 각자 구현: CSV/JSON 파싱 + Resources.Load 분기
+
+그 공백을 Asset Store가 채움
+I2 Localization, Smart Localization, Lean Localization
+
+TextMesh Pro (2017년 Unity가 인수, 2018.1부터 기본 번들)
+font fallback, dynamic SDF
+
+---
+
+2. Editor 자체의 국제화 (2018~2020)
+
+3. com.unity.localization 패키지 (2018.12~현재)
+
+공식 로컬라이제이션 솔루션
+약 3년간 preview로 머물렀습니다
+
+---
+
+XLIFF
+XML Localization Interchange File Format
+
+OASIS 표준(1.2 / 2.0)
+번역 회사와 주고받는 교환 포맷
+
+단순 key-value(CSV)와 다른 점은 번역 워크플로 자체를 담는다는 것
+
+<source> 원문과 <target> 번역문이 한 unit 안에 쌍으로 존재
+state 속성으로 상태 추적 — new, translated, reviewed, final
+<note> 로 번역가에게 줄 문맥 설명 첨부
+원문이 바뀌면 해당 unit만 상태가 되돌아가 재번역 대상이 드러남
+
+---
+
+.po (gettext PO)
+
+GNU gettext의 Portable Object 포맷
+msgid(원문/키) + msgstr(번역) 의 평문 나열
+
+#: EditorGUI.cs
+msgid "Add Component"
+msgstr "컴포넌트 추가"
+
+---
+
+Property Variants
+
+컴포넌트의 임의 프로퍼티를 locale별로 다르게 저장하는 기능
+텍스트만이 아니라 레이아웃까지 대응
+
+TrackedUGUI, TrackedTMP — 텍스트, 폰트 에셋, 폰트 크기
+TrackedRectTransform — 크기, 앵커, 위치
+TrackedTransform, TrackedMeshFilter — 스케일, 메시 교체
+TrackedMonoBehaviourObject — 커스텀 스크립트의 public 필드
+
+---
+
+Newtonsoft.Json
+com.unity.nuget.newtonsoft-json
+
+NET 생태계의 사실상 표준 JSON 라이브러리
+Json.NET을, Unity가 UPM 패키지로 재배포한 것
+
+Unity 내장 JsonUtility가 있는데도 의존하는 이유는 JsonUtility의 제약 때문
+
+다형성(polymorphic) 직렬화 불가 — 인터페이스·추상 클래스 필드 처리 못 함
+Dictionary 미지원
+최상위 배열 미지원
+null 처리와 커스텀 converter 부재
+
+---
+
+JsonUtility는 C# 리플렉션이 아니라 
+Unity의 네이티브 직렬화기(Inspector가 쓰는)를 그대로 호출합니다
+
+속도와 GC — 단순 DTO 기준으로 Json.NET보다 빠르고 할당이 적음
+매 프레임 오가는 데이터라면 유의미한 차이
+
+Unity 타입이 그냥 됨
+Newtonsoft로 Vector3를 던지면 normalized, magnitude 같은 property까지 타고 들어가 
+재귀에 빠지므로 custom converter가 필수
+
+FromJsonOverwrite
+기존 인스턴스에 덮어쓰기. 객체 재사용이 가능하고, 
+MonoBehaviour·ScriptableObject 인스턴스에도 적용됨.
+
+[SerializeField] private 필드를 그대로 인식
+
+빌드 부담 없음 — 추가 DLL 없고, 네이티브라
+
+---
+
+Newtonsoft가 필요해지는 지점
+
+Dictionary, 최상위 배열, null 구분, interface·추상 클래스 다형성
+남이 만든 API 응답 파싱 — 필드명 규칙(snake_case)이 다르거나 스키마가 유동적일 때
+파싱 실패 시 예외와 메시지가 필요할 때. JsonUtility는 타입이 안 맞아도 조용히 기본값을 넣고 넘어감
+부분 파싱, JObject로 훑기, custom converter, [JsonIgnore] 같은 세밀한 제어
+
+---
+
+원본은 James Newton-King의 Json.NET(NuGet Newtonsoft.Json)
+com.unity.nuget.newtonsoft-json 3.2.2가 Json.NET 13.0.2에 동기화되어 있습니다
+
+DLL이 두 벌
+
+Runtime/Newtonsoft.Json.dll(Mono/Editor용)
+Runtime/AOT/Newtonsoft.Json.dll
+
+AOT 빌드는 System.Reflection.Emit 기반 동적 IL 생성을 제거한 버전
+
+---
+
+Unity에는 NuGet 통합이 없습니다
+그래서 Localization, Addressables, Cloud 계열, 서드파티 에셋이 
+각자 Newtonsoft DLL을 Plugins 폴더에 넣으면 
+동일 어셈블리 중복으로 컴파일이 깨집니다
+
+UPM은 버전 해석과 중복 제거를 해주는 유일한 메커니즘이라,
+Unity가 자기 이름으로 하나를 올려두고 
+모든 패키지가 그걸 참조하게 만든 것입니다.
+
+---
+
+Smart Localization
+언어별 .resx 파일(Microsoft 리소스 포맷)
+System.Globalization.CultureInfo를 그대로 씀
+
+---
+
+Lean Localization
+GameObject / Component 기반.
+씬에 LeanLocalization 컴포넌트가 있고,
+언어는 LeanLanguage prefab
+문구 하나가 LeanPhrase 컴포넌트 하나입니다
+
+규모가 커지면 prefab으로 빼서 LeanLocalization.Prefabs에 등록하는 방식으로 관리합니다
+번역 데이터가 결국 씬/prefab 계층에 흩어지는 구조라 수천 개 단위에서는 부담이 됩니다
+
+---
+
+I2 Localization
+
+단일 I2Languages.asset(Resources 폴더의 ScriptableObject)에 전부 저장
+편집 시 한 파일에서 모든 언어를 나란히 보므로 누락 발견이 쉽습니다
+
+빌드 시 LanguageSource를 언어별 파일로 쪼개 StreamingAssets에 넣고
+런타임에 필요한 언어만 로드/언로드합니다
+
+---
+
+com.unity.localization
+
+SharedTableData(키 정의) + StringTable / AssetTable(언어별 값)로 분리하고, 
+테이블 단위로 쪼갭니다
+
+로딩은 전적으로 Addressables에 위임하며 AsyncOperationHandle 기반 비동기입니다
+PreloadBehavior로 preload 범위를 제어합니다
+
+---
+
+Lean Localization
+
+내부적으로 LeanPhrase가 저장하는 타입은 
+Text(string), Object(UnityEngine.Object), Sprite 3종
+
+컴포넌트는 LeanLocalizedText, 
+LeanLocalizedImage, LeanLocalizedSpriteRenderer, LeanLocalizedRenderer(material), 
+LeanLocalizedAudioSource, TMP 계열, Dropdown 등이 있고,
+LeanLocalizedBehaviour를 상속해 확장합니다.
+
+---
+
+I2 Localization
+
+uGUI, TextMeshPro는 물론 NGUI, DF-GUI, 2D Toolkit, SVG Importer 같은 레거시·서드파티 UI까지 지원합니다. 
+Sub-Object Translations가 특징인데, 라벨 하나에서 텍스트뿐 아니라 폰트를, 
+스프라이트에서 atlas와 sprite name을 언어별로 동시에 바꿉니다
+
+LocalizeStringEvent, LocalizeSpriteEvent, LocalizeTextureEvent, LocalizeAudioClipEvent, LocalizedGameObjectEvent가 
+UnityEvent로 값을 밀어넣는 구조
+
+---
+
+Lean Localization
+
+{NAME} 토큰 치환이 전부
+LeanToken.SetValue로 값을 바꾸면 표시 중인 텍스트가 갱신됩니다
+복수형·성별 규칙은 없습니다
+
+---
+
+I2 Localization
+
+Plurals, Parameters를 지원하고
+Translation Modifiers로 언어별 어순 때문에 문자열 연결이 깨지는 문제를 콜백으로 처리
+터치/PC를 구분하는 Input Specialization도 있습니다
+
+---
+
+com.unity.localization
+
+Smart Strings(SmartFormat)
+CLDR 기준 plural, choose로 성별 분기, list 포맷, Persistent Variables 구독까지 문자열 안에서 해결
+번역가가 코드 수정 없이 규칙을 넣을 수 있다는 게 핵심
+
+---
+
+Google Spreadsheets Live Synchronization
+
+출시 이후에도 스프레드시트 변경분이 자동 다운로드됩니다
+오탈자 하나 고치려고 앱 업데이트를 올릴 필요가 없다
+
+CSV / Excel / OpenOffice도 지원
+Google Translator 자동 번역, 씬 파싱으로 missing·unused term 탐지
+사용된 문자 수집(폰트 atlas 최적화용)
+Term을 스크립트 상수로 baking해 컴파일 타임 체크까지
+
+---
+
+CLDR
+Common Locale Data Repository
+공통 지역화 데이터 저장소
+
+Unicode Consortium이 관리하는, 
+언어·지역별 표현 규칙과 데이터를 모아둔 
+표준 데이터 저장소
+
+---
+
+CAT
+Computer-Assisted Translation
+
+Trados, memoQ, Crowdin
+
+Translation Memory, TM: 이전 번역을 저장하고 비슷한 문장이 나오면 재사용 후보를 제시
+Term Base, TB: 용어집입니다. 예를 들어 Health → 체력, Armor → 방어력처럼 프로젝트 용어를 통일
+Segment 단위 편집: 원문과 번역문을 문장·구문 단위로 나란히 관리합니다
+QA: 숫자 누락, 태그 손상, 용어 불일치 같은 문제를 검사합니다
+XLIFF 같은 교환 포맷 지원: 개발팀과 번역팀 사이에서 문자열과 메타데이터를 주고받습니다
+
+---
+
+com.unity.localization
+
+SharedTableData가 각 엔트리에 내부 숫자 ID를 부여하고
+TableReference와 TableEntryReference는 이름 대신 그 ID를 참조합니다
+그래서 키 이름을 리팩터링해도 참조가 끊기지 않습니다.
+
+I2, Lean, gettext 계열이 전부 문자열 키를 그대로 참조하기 때문에 겪는 고질병
+키 오타 하나, 이름 정리 한 번에 참조가 조용히 죽는 문제를 구조적으로 없앴습니다
+
+---
+
+로딩을 로컬라이제이션 문제에서 분리한 것
+
+I2는 자체적으로 StreamingAssets 분할·언로드 로직을 만들어야 했습니다
+Unity는 그 문제를 풀지 않고 Addressables에 통째로 위임했습니다
+
+결과적으로 "언어 팩을 CDN에서 나중에 받기", "쓰는 언어만 메모리에 올리기", "플랫폼별로 다르게 번들링" 같은 요구가 
+전부 Addressables의 기존 기능으로 흡수됩니다
+
+---
+
+문법 로직을 코드에서 데이터로 밀어낸 것
+
+Smart Strings 이전의 관행은 "You have " + n + " items" 였고
+이건 영어 외의 언어에서 무조건 깨집니다
+
+Smart Strings는 복수형·조건 분기를 번역 문자열 안에 넣어서, 
+러시아어 번역가가 프로그래머를 거치지 않고 3형 복수를 처리할 수 있게 했습니다
+
+이건 웹 진영이 ICU MessageFormat으로 10년 전에 도달한 지점이고, 
+게임 엔진 쪽에서는 늦게 온 편입니다
+
+---
+
+로컬라이제이션을 "텍스트 교체"가 아니라 "프로퍼티 variant"로 재정의한 것
+
+독일어에서 버튼이 터지는 문제, 아랍어에서 앵커를 뒤집어야 하는 문제, CJK에서 폰트 크기를 올려야 하는 문제는 
+전부 텍스트가 아니라 레이아웃 문제인데, 
+기존 솔루션들은 이걸 prefab variant 복제로 해결하라고 했습니다. 
+Unity는 컴포넌트 프로퍼티 단위 diff로 풀었습니다.
+
+---
+
+XLIFF 1.2 / 2.0 지원으로 Trados·memoQ·Crowdin과 정식으로 왕복할 수 있게 됐습니다
+I2의 Google Sheets 연동은 편리하지만 번역 메모리도, 상태 추적도, 용어집도 없는 평면 스프레드시트
+번역사가 10명 붙는 규모에서는 XLIFF가 아니면 협업이 성립하지 않습니다.
+
+여기에 Pseudo-localization이 내장되어, 번역이 한 줄도 도착하기 전에 레이아웃 붕괴를 잡을 수 있습니다
+
+---
+
+Addressables 강결합
+
+Addressables를 안 쓰는 프로젝트, 
+혹은 자체 에셋 파이프라인이 있는 프로젝트는 
+로컬라이제이션 하나 때문에 빌드 시스템을 통째로 받아들여야 합니다
+
+AsyncOperationHandle 기반 API가 호출부에 전염되는 것도 비용입니다
+단순히 문자열 하나 읽는 코드가 비동기가 됩니다
+
+---
+
+출시 후 번역 갱신 경로가 없다
+
+I2가 Google Live Synchronization으로 제공하는 
+앱 업데이트 없는 번역 핫픽스가 공식 패키지에는 없습니다
+
+Addressables 원격 카탈로그로 직접 만들 수는 있지만 1급 기능이 아닙니다
+라이브 서비스에서 오타 하나 고치려고 스토어 심사를 기다려야 하는 건 현실적인 결격 사유
+
+---
+
+1.0.0이 2021년 9월인데 2026년 현재 1.5.11입니다
+2.0 로드맵도, MessageFormat 2 대응 계획도 공개된 게 없습니다
+
+---
+
+Unreal Engine
+
+FString(비번역)과 FText(번역 대상)를 타입 레벨에서 분리하고
+UI에 노출되는 API는 FText만 받습니다
+LOCTEXT(namespace, key, source) 매크로가 네임스페이스·키·원문을 한 자리에 묶습니다
+
+---
+
+Web 
+
+ICU MessageFormat이 사실상 표준이고, i18next·FormatJS 등이 이를 구현합니다
+
+Mozilla의 Fluent는 다른 철학입니다
+asymmetric localization
+영어는 단순한데 폴란드어는 성·격에 따라 분기해야 한다면, 
+폴란드어 번역 파일만 복잡한 구조를 갖게 허용합니다. 
+원문 언어의 구조가 다른 모든 언어를 구속하지 않는다는 발상
+
+---
+
+문맥을 자동으로 수집해 번역가에게 넘긴다
+
+번역 품질을 망치는 가장 큰 원인은 번역가가 문자열이 어디에 쓰이는지 모른다는 것
+에디터에서 각 키가 등장하는 UI 스크린샷을 자동 캡처해 XLIFF의 <note>나 참조 필드에 첨부합니다
+기술적으로 어렵지 않은데 아무도 안 하고 있습니다
+
+---
+
+CI에서 레이아웃 붕괴를 자동 검출한다
+
+Pseudo-localization으로 모든 화면을 렌더링해 스냅샷을 뜨고, 
+텍스트 오버플로·클리핑을 픽셀 단위로 감지해 PR에서 실패시킵니다
+
+---
+
+OTA
+Over-The-Air
+바이너리를 다시 배포하지 않고 네트워크를 통해 데이터를 내려받아 갱신하는 방식
+
+번역 서버/CDN
+    ↓ 다운로드
+새 번역 데이터
+    ↓
+FPolyglotTextData 생성
+    ↓
+FTextLocalizationManager::RegisterPolyglotTextData()
+    ↓
+실행 중인 게임에 번역 반영
+
+---
+
+ICU
+International Components for Unicode
+Unicode Consortium의 국제화 라이브러리
+
+---
+
+Edit > Project Settings > Localization > Create
+Localization Settings.asset
+
+EditorBuildSettings의 config object로 등록되어(LocalizationSettings.ConfigName) 
+ProjectSettings/EditorBuildSettings.asset에 참조가 박히고, 그 경로로 빌드에 포함됩니다
+
+---
+
+Locale Generator에서 언어를 체크하면 언어당 파일 하나가 생깁니다
+
+Korean (ko).asset
+English (en).asset
+Japanese (ja).asset
+Chinese (Simplified) (zh-Hans).asset
+
+---
+
+Table Collection — 한 세트에 파일 N+2개
+
+테이블 컬렉션 하나를 만들면 
+SharedTableData 1개 + Locale별 Table N개 + Collection 1개가 동시에 생성됩니다
+
+UI Text라는 이름으로 한/영/일 3개 언어를 만들면 이렇게 됩니다
+
+UI Text.asset                 ← StringTableCollection (에디터 전용)
+UI Text Shared Data.asset     ← SharedTableData (키 정의, 전 언어 공용)
+UI Text_en.asset              ← StringTable (영어 값)
+UI Text_ko.asset              ← StringTable (한국어 값)
+UI Text_ja.asset              ← StringTable (일본어 값)
+
+---
+
+컬렉션 하나가 파일 5~15개를 쏟아내므로 폴더로 격리하지 않으면 금방 지저분해집니다
+
+Assets/
+  Localization/
+      Localization Settings.asset
+      Addressable Group Rules.asset
+      Locales/
+          English (en).asset
+          Korean (ko).asset
+          Japanese (ja).asset
+      Tables/
+          UI/
+              UI Text.asset
+              UI Text Shared Data.asset
+              UI Text_en.asset
+              UI Text_ko.asset
+              UI Text_ja.asset
+          Dialogue/
+              Dialogue.asset
+              Dialogue Shared Data.asset
+              ...
+          Items/
+              ...
+      Assets/
+          VoiceOver.asset          ← AssetTableCollection
+          VoiceOver Shared Data.asset
+          ...
+      Variables/
+          Global Variables.asset   ← Variables Group
+
+---
+
+컴포넌트 붙이기 — 우클릭 Localize
+
+Text, TextMeshProUGUI, Image, RawImage, AudioSource 컴포넌트를 우클릭 > Localize 하면 
+대응하는 컴포넌트가 붙고 UnityEvent 연결까지 자동으로 됩니다
+
+Text / TMP → LocalizeStringEvent
+Image → LocalizeSpriteEvent
+RawImage → LocalizeTextureEvent
+AudioSource → LocalizeAudioClipEvent
+
+기존 Text에 들어 있던 문자열이 String Table에 이미 있으면 키를 자동으로 찾아 연결합니다
+
+---
+
+스크립트에 public LocalizedString을 선언하면 인스펙터에 전용 드로어가 나옵니다
+테이블/엔트리 선택은 물론, Tables 창을 열지 않고 그 자리에서 번역값을 직접 편집할 수 있습니다
+
+---
+
+Window > Asset Management > Localization Tables가 메인 편집기입니다
+
+Import/Export는 컬렉션이나 개별 테이블을 우클릭해서 씁니다
+
+Export → CSV, CSV(With Comments), XLIFF, Character Set
+Import → CSV, CSV(Merge), XLIFF
+
+Character Set export
+해당 언어에서 실제 쓰이는 글리프만 뽑아주므로 
+TMP 폰트 아틀라스를 최소 크기로 만들 수 있습니다. 
+CJK에서 용량 차이가 큽니다.
+
+---
+
+SharedTableData
+responsible for the localization keys and associating the keys to unique ids
+컬렉션 하나당 하나 존재
+
+ScriptableObject
+
+public class SharedTableEntry
+{
+    public long Id { get; }                     // 고유 ID, 절대 안 바뀜
+    public string Key { get; }                  // 사람이 읽는 이름, 바뀔 수 있음
+    public MetadataCollection Metadata { get; } // 번역가 주석 등
+}
+
+Key와 Id를 분리한 것이 이 패키지의 핵심 설계
+START_GAME을 MENU_START로 바꿔도 모든 참조가 살아남습니다
+
+---
+
+Id
+
+Sequence 12bit — 같은 밀리초 내 로컬 카운터. 밀리초당 4095개까지
+Machine Id 10bit — 에디터에서는 네트워크 인터페이스 물리 주소로 생성. 1024대까지
+Epoch Timestamp 41bit — 커스텀 epoch 기준. 69년치
+
+여러 명이 동시에 같은 테이블에 키를 추가해도 ID가 충돌하지 않습니다
+
+---
+
+StringTable — 한 언어의 값을 담는 곳
+
+LocalizationTable을 상속한 ScriptableObject
+Locale 하나당 하나
+
+LocaleIdentifier를 들고 있고 SharedData 참조를 통해 키 정의에 접근합니다
+
+public class StringTableEntry : TableEntry
+{
+    public string Value { get; }      // 포맷 적용 전 원본 문자열
+    public bool IsSmart { get; }      // Smart String 여부
+    public FormatCache FormatCache { get; } // 파싱 결과 캐시
+}
+
+IsSmart가 true면 SmartFormat이, false면 string.Format이 돌아갑니다
+
+---
+
+StringTableCollection
+
+UnityEditor.Localization 네임스페이스
+에디터 전용이고 빌드에 포함되지 않습니다
+
+행 = 키 → SharedTableData가 정의
+열 = 언어 → StringTable 하나가 열 하나
+컬렉션 = 그 표를 표처럼 보여주는 뷰
+
+---
+
+.NET의 System.Globalization.CultureInfo
+
+LocaleIdentifier는 BCP-47 코드 문자열(ko, ja, zh-Hans, pt-BR)만 들고 있다가 필요할 때 지연 조회
+
+---
+
+LocalizationSettings
+프로젝트당 하나인 ScriptableObject
+
+전체 시스템의 서비스 로케이터
+모든 조회가 결국 여기를 거칩니다
+
+---
+
+InitializationOperation
+AsyncOperationHandle<LocalizationSettings>
+부팅 시 반드시 대기해야 합니다
+이걸 안 기다리고 AvailableLocales를 읽으면 빈 목록이 나옵니다
+
+AvailableLocales — ILocalesProvider. 사용 가능한 언어 목록
+SelectedLocale / SelectedLocaleAsync / SelectedLocaleChanged — 현재 언어와 변경 이벤트
+
+SelectedLocale에 대입하는 순간 전역 이벤트가 퍼지고 
+살아 있는 모든 LocalizedString이 갱신됩니다. 
+언어 전환의 공식 경로
+
+---
+
+// 나쁨 - 이름 기반. 테이블명이나 키명 변경 시 런타임에 조용히 실패
+var s = new LocalizedString("UI Text", "START_GAME");
+
+// 좋음 - 인스펙터에서 지정. GUID + Id로 직렬화된다
+[SerializeField] LocalizedString startGame;
+
+---
+
+키 상수를 코드 생성한다
+
+// 오타가 컴파일 에러가 된다. 키가 삭제되면 빌드가 깨진다
+uiText.text = LocKeys.UI_Text.START_GAME.GetLocalizedString();
+
+---
+
+Pseudo-localization
+
+전 문자열을 [Ŝŧàŕŧ Ĝàmé———] 처럼 변형합니다. 
+화면에서 변형되지 않은 채 멀쩡히 영어로 남아 있는 문자열이 곧 로컬라이즈 누락
+
+---
+
+독일어는 영어 대비 30~40% 길어집니다. 러시아어도 비슷하고, 일본어·중국어는 짧아집니다
+레이아웃 조정은 prefab variant를 복제하지 말고 Property Variants로 하세요.
+
+---
+
+Smart String에 사용자 입력을 직접 넣기
+
+플레이어 닉네임에 {, }가 들어가면 파서가 깨집니다. 
+Smart String의 인자로 전달하면 안전하지만, 
+사용자 입력을 포맷 문자열 자체에 이어붙이면 위험합니다.
+
+---
+
+globalization-invariant 모드
+
+빌드 용량을 줄이려고 켜면 CultureInfo가 전부 InvariantCulture로 무너집니다
+
+---
+
+키 이름
+
+"Start Game"        // 나쁨. 원문이 바뀌면 키를 바꿀지 말지 매번 고민하게 됨
+"UI_MENU_START"     // 좋음. 의미 기반, 계층 구조
+
+---
+
+모든 것을 한 테이블에
+
+GameText 하나에 5000개 엔트리를 넣으면 메인 메뉴에서도 대사 전체가 메모리에 올라옵니다. 
+테이블이 로딩 단위라는 점을 잊지 마세요
+
+---
+
+초기화를 기다리지 않으면 AvailableLocales가 비어 있습니다.
+
+public class Bootstrap : MonoBehaviour
+{
+    // Bootstrap::Start - 로컬라이제이션 초기화(로케일 로드 + preload) 완료를 대기
+    IEnumerator Start()
+    {
+        yield return LocalizationSettings.InitializationOperation;
+
+        // 이 시점부터 SelectedLocale, AvailableLocales가 유효하다
+        SceneManager.LoadScene("MainMenu");
+    }
+}
+
+---
+
+UI Builder
+
+요소의 Inspector에서 필드를 우클릭 > Add binding → 바인딩 타입으로 LocalizedString 등을 선택 → 테이블과 엔트리 지정
+Local Variables도 여기서 붙입니다.
+
+---
+
+UXML 직접 작성
+
+<ui:UXML xmlns:ui="UnityEngine.UIElements"
+         xmlns:l="UnityEngine.Localization"
+         xmlns:lv="UnityEngine.Localization.SmartFormat.PersistentVariables">
+  <ui:Label text="Label">
+    <Bindings>
+      <l:LocalizedString property="text"    table="GUID:27153e20..." entry="Id(328014486446080)" />
+      <l:LocalizedString property="tooltip" table="My Table" entry="My Tooltip" />
+      <l:LocalizedTexture property="style.backgroundImage" table="My Assets" entry="My Texture" />
+    </Bindings>
+  </ui:Label>
+</ui:UXML>
+
+---
+
+첫 프레임에 UXML의 기본 텍스트가 보인다
+
+테이블이 아직 로드되지 않으면 Pending을 반환하고 값을 쓰지 않습니다. 
+그동안 화면에는 UXML에 적어둔 text="Label"이 그대로 보입니다
+
+Preload를 켠다
+Localization Settings의 Preload Behavior + 해당 테이블의 Preload 토글
+
+UXML의 기본 텍스트를 빈 문자열로 둔다
+
+로딩 화면에서 LocalizationSettings.InitializationOperation을 대기한 뒤 
+UIDocument를 활성화한다
+
+---
+
+에디터에서 보이는 것과 런타임이 다르다
+
+---
+
+1.5.x 이전 버전에는 StringChanged 구독자가 모두 해제된 뒤에도 
+Persistent Variable의 ValueChanged 구독이 남는 버그가 있었습니다(LOC-1213). 
+UI를 자주 생성·파괴하는 화면에서 누적됩니다.
+
+---
+
+텍스트 길이 대응은 UITK 쪽이 명백히 낫습니다. 
+Flexbox라서 독일어가 40% 길어져도 
+flex-grow, white-space: normal, text-overflow: ellipsis 조합으로 자연스럽게 흡수됩니다
+
+---
+
+xmlns:접두사="네임스페이스"
+이후 문서에서 접두사:이름을 쓰면 해당 네임스페이스의 타입으로 해석됩니다
+
+xmlns:ui="UnityEngine.UIElements"                                       → ui:Label     = UnityEngine.UIElements.Label
+xmlns:l="UnityEngine.Localization"                                      → l:LocalizedString
+xmlns:lv="UnityEngine.Localization.SmartFormat.PersistentVariables"     → lv:IntVariable
+
+---
+
+<Bindings>
+
+VisualElement가 아닙니다
+UXML 임포터가 인식하는 예약된 컨테이너로
+"이 부모 요소에 붙일 바인딩 목록"을 담습니다
+
+UITK runtime data binding의 공용 문법
+
+---
+
+l:LocalizedString
+UnityEngine.Localization.LocalizedString 클래스
+
+C# 타입이 UXML 요소로 직접 등장하는 이유는 
+이 클래스에 [UxmlObject]가 붙어 있고 
+partial로 선언되어 UXML 직렬화 코드가 생성되기 때문
+
+---
+
+오디오에서 중앙 카탈로그를 경계했던 가장 큰 이유
+
+그 매니저 프리팹이 게임의 모든 오디오를 참조하는 순간, 첫 씬 로드에서 전부 메모리에 올라간다
+
+로컬라이제이션에는 이 문제가 없습니다. 
+LocalizedString은 테이블 GUID와 Key Id만 들고 있는 구조체일 뿐, AudioClip 같은 실제 에셋 참조가 아닙니다
+
+필드가 1000개여도 카탈로그 자체는 수십 KB이고, 
+실제 로딩은 Addressables가 테이블 단위로 따로 합니다.
+
+---
+
+소유자가 있는 텍스트 → 분산
+
+아이템 이름, 몬스터 설명, 스킬 툴팁, 특정 UI 화면의 라벨. 
+데이터 에셋이나 프리팹이 자기 텍스트를 소유합니다
+
+// 아이템이 자기 이름을 소유한다. 라이브러리에 등록할 이유가 없다
+[CreateAssetMenu(menuName = "Game/Item")]
+public class ItemDefinition : ScriptableObject
+{
+    [SerializeField] LocalizedString displayName;
+    [SerializeField] LocalizedString description;
+}
+
+---
+
+소유자가 없는 텍스트 → 중앙화
+
+네트워크 에러, 저장 실패, 확인/취소, 공용 다이얼로그
+어디서든 불려야 하고 배선할 곳이 마땅치 않은 것들
+
+---
+
+UXML 바인딩과 ScriptableObject 필드가 대부분을 흡수하고, 
+TextLibrary에 남는 건 수십 개 수준입니다
+
+---
+
+// 키 조립이 사라진다. 참조는 SO가 들고 있다
+var item = ItemDatabase.Get(itemId);
+var desc = item.Description;
+
+---
+
+약점
+
+테이블에 키를 추가해도 TextLibrary에 필드가 저절로 생기지 않습니다
+수동으로 선언해야 합니다
+
+키가 수천 개인 영역(대사, 아이템 설명)을 여기 넣으면 붕괴합니다
+그건 분산 쪽으로 보내야 합니다
+
+중앙 .asset이 머지 대상입니다
