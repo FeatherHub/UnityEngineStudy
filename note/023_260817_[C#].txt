@@ -1,0 +1,1045 @@
+C# 1.0 — 2002년 1월
+
+Classes, Structs, Interfaces, Events, Properties, Delegates, Attributes
+Java와 유사한 "단순하고 현대적인 범용 OO 언어"가 목표
+
+---
+
+C# 1.2 — 2003년 4월
+
+foreach 루프에서 IEnumerator가 IDisposable을 구현하면 Dispose 호출
+
+---
+
+C# 2.0 — 2005년 11월
+
+Generics
+Iterators (yield)
+Partial types, Anonymous methods, Nullable value types
+
+---
+
+C# 3.0 — 2007년 11월
+
+LINQ (Query expressions)
+Lambda expressions, Expression trees, Anonymous types (LINQ의 기반)
+Extension methods, Auto-implemented properties, var
+Object/collection initializers, Partial methods
+객체지향 + 함수형 하이브리드로의 전환점
+
+---
+
+C# 4.0 — 2010년 4월
+
+dynamic binding
+Named/optional arguments
+
+---
+
+C# 5.0 — 2012년 8월
+
+async / await — 비동기를 언어 차원의 1급 시민으로
+
+---
+
+C# 6.0 — 2015년 7월
+
+String interpolation, ?., nameof
+Expression bodied members, Auto-property initializers, Exception filters, Static imports
+Roslyn 컴파일러를 C#으로 재작성해 오픈소스 공개
+
+---
+
+C# 7.0 — 2017년 3월
+
+Tuples and deconstruction
+Out variables, Local functions, Ref locals/returns
+Discards, Binary literals & digit separators
+
+---
+
+C# 7.1 — 2017년 8월
+
+async Main, default 리터럴
+
+---
+
+C# 7.2 — 2017년 11월
+
+readonly struct, ref struct, in 파라미터
+private protected
+
+---
+
+C# 7.3 — 2018년 5월
+
+stackalloc 초기화
+
+---
+
+C# 8.0 — 2019년 9월
+
+Nullable reference types
+Asynchronous streams (await foreach)
+Indices and ranges (^, ..)
+Null-coalescing assignment (??=)
+
+---
+
+C# 9 — 2020년 11월 (.NET 5)
+
+Records, Init only setters, Top-level statements
+Target-typed new
+
+---
+
+C# 10 — 2021년 11월 (.NET 6)
+
+Record structs
+global using, File-scoped namespace
+Interpolated string handlers
+
+---
+
+C# 11 — 2022년 11월 (.NET 7)
+
+Raw string literals
+Generic math
+List patterns
+
+---
+
+C# 12 — 2023년 11월 (.NET 8)
+
+Collection expressions ([..], spread element)
+Alias any type (using 별칭 확장)
+
+---
+
+C# 13 — 2024년 11월 (.NET 9)
+
+---
+
+C# 14 — 2025년 11월 (.NET 10)
+
+field 키워드 — 백킹 필드 접근
+
+---
+
+C# 15 — 2026년 11월 예정 (.NET 11, 현재 preview)
+
+Union types (union 키워드)
+
+---
+---
+---
+
+C# 1.0, 2002
+ref, out
+
+C# 7.2, 2017
+in
+
+---
+
+C# 7.0 (2017)
+**out variable**
+
+int.TryParse("123", out int value);
+
+---
+
+nullable reference types
+Unity에서는 특히 [SerializeField] 때문에 약간 애매해집니다
+Inspector가 나중에 값을 넣어 주기 때문에 C# 컴파일러 관점에서는 초기화되지 않은 필드입니다
+
+UnityEngine.Object
+일반 CLR 객체와 null 의미가 같지 않습니다
+파괴된 UnityEngine.Object는 실제 managed reference가 존재하면서도 
+Unity의 오버로드된 == null 검사에서는 null처럼 동작할 수 있습니다
+
+---
+
+readonly struct + in
+defensive copy 제거
+
+---
+
+ref struct
+정의는 "ref 필드를 담을 수 있는 struct"
+
+여기서 ref T는 managed reference(CLR 용어로 byref)
+객체 내부 중간을 가리킬 수도, 스택 프레임을 가리킬 수도, unmanaged 메모리를 가리킬 수도 있습니다
+
+그런데 이런 byref는 힙 객체의 필드에 저장될 수 없습니다
+힙 객체의 필드는 온전한 객체 참조여야만 GC가 compaction 시 갱신할 수 있습니다
+스택 프레임을 가리키는 byref가 힙에 저장되면 그 프레임보다 오래 살아남아 dangling reference가 됩니다
+
+---
+
+ref를 담을 수 있다 (원인) → 그래서 힙에 올라가면 안 된다 (결과)
+
+---
+
+ref struct
+System.Runtime.CompilerServices.IsByRefLikeAttribute
+Indicates that a structure is byref-like
+
+---
+
+readonly 인스턴스 멤버
+public readonly float GetLengthReadonly()
+
+왜 위반이 error가 아니라 copy인가
+
+const correctness의 전염성
+
+there are some scenarios where you have an existing API that has a mix of mutating and non-mutating members
+Under these circumstances, you cannot mark the type as readonly
+
+C++는 1985년부터 const가 있었고 표준 라이브러리가 처음부터 const-correct하게 작성됐습니다. 
+새 코드는 그 관행에 얹히기만 하면 됩니다
+
+동작은 하되 조용히 느림 (copy)
+정확하되 생태계를 깨뜨림 (error)
+
+---
+
+With in parameters for non-readonly structs
+the compiler will make a copy of the parameter for each instance member invocation
+
+This can lead to a multitude of copies and worse overall performance
+
+readonly 멤버를 붙여도 그 안에서 non-readonly 멤버를 호출하면 복사가 재발
+
+---
+
+x == null은 사용자가 오버로드한 operator ==를 호출하고
+x is null은 진짜 참조 비교
+
+---
+
+csc
+Microsoft가 사용하는 C# compiler
+
+rsp는 response file
+컴파일러에 넘길 옵션들을 파일에 적어두는 방식
+
+Unity가 C# 코드를 컴파일할 때 이 파일의 옵션을 compiler command line에 추가합니다
+
+---
+
+MyGame/
+├─ .editorconfig
+├─ Assets/
+├─ Packages/
+└─ ProjectSettings/
+
+---
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+tab_width = 4
+
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+
+dotnet_sort_system_directives_first = true
+
+---
+
+Rider
+
+Settings
+→ Tools
+→ Actions on Save
+→ Reformat and Cleanup Code
+
+---
+
+파일명과 폴더명은 .editorconfig 범위 밖
+editorconfig naming rule은 C# 코드 요소용
+
+---
+
+Unity 6.8
+Path to CoreCLR, 2026
+
+Mono를 완전히 제거합니다
+Unity 6.8 will no longer have Mono as an available option
+
+.NET 10 기반 툴체인과 BCL, 노출되는 TFM은 net10.0 하나 → C# 14
+
+---
+
+AppDomain 언로드가 사라지고 multi-ALC 기반으로 갑니다
+DomainUnload가 더 이상 발생하지 않고, static 변수가 자동 초기화되지 않습니다
+[AutoStaticsCleanup], [BeforeCodeUnloading] 같은 Lifecycle API로 손수 처리해야
+
+---
+
+부동소수점 결과가 달라질 수 있음
+
+CoreCLR은 IEEE 754 준수, Mono JIT은 그렇지 않았습니다
+(IL2CPP와 Burst는 영향 없음 — Burst는 이미 FloatMode.Strict 기본)
+
+---
+
+ALC — AssemblyLoadContext
+
+.NET Framework에는 AppDomain이 있었습니다. 
+어셈블리를 별도 도메인에 로드하고 도메인을 통째로 언로드할 수 있었고, 
+Unity의 domain reload가 이 위에 서 있습니다
+스크립트를 고치면 관리 도메인 전체를 날리고 다시 만드는 방식
+
+.NET Core/CoreCLR에는 AppDomain 언로드가 없습니다
+도메인은 하나뿐이고 언로드 불가입니다
+대신 System.Runtime.Loader.AssemblyLoadContext가 들어왔습니다.
+
+---
+
+ALC는 어셈블리를 담는 스코프
+isCollectible: true로 만들면 개별 ALC 단위로 언로드할 수 있습니다
+
+핵심은 언로드가 강제가 아니라 협조적이라는 점입니다
+ALC 안의 무언가가 바깥에서 참조되고 있으면 회수되지 않습니다
+
+살아있는 객체 하나, static 루트 하나, 그 코드에 스택 프레임을 둔 스레드 하나, 델리게이트 하나만 남아도 언로드가 실패합니다
+
+---
+
+지금: 스크립트 하나만 고쳐도 관리 도메인 전체를 재구축 → domain reload가 느림
+
+6.8: 어셈블리를 여러 ALC에 나눠 담고, 변경된 어셈블리를 담은 ALC(와 그에 의존하는 ALC)만 교체
+"The more finely grained we can made the ALC, the less code has to reload"
+
+---
+
+언로드 실패 시 같은 타입이 두 벌 로드된다는 것
+
+---
+
+Boehm GC (현재)
+conservative, non-moving
+
+관리·네이티브 가릴 것 없이
+모든 스레드 스택을 훑어 "포인터처럼 생긴 값"을 전부 루트로 취급합니다
+한 번 할당된 객체는 절대 움직이지 않습니다
+
+---
+
+CoreCLR GC
+precise, moving
+
+관리 코드 안에서만 객체를 추적하고
+성능을 위해 메모리에서 옮깁니다
+
+---
+
+Unity의 C++ 코드는 ScriptingObjectPtr로 System.Object를 들고 있었는데, 
+그 실체가 MonoObject* — GC 힙을 가리키는 생포인터
+Boehm이 non-moving이라 이게 그냥 동작했습니다.
+
+---
+
+CoreCLR에서는 성립하지 않으므로 표현을 셋으로 쪼갰습니다.
+
+GC-allocated pointer — 기존 방식. 전환용 임시이고 최종 제거 대상
+
+managed stack reference — 포인터 대신 포인터 변수의 주소를 넘깁니다. 
+지역 주소는 GC가 옮기지 않고 관리 스택이 객체를 살려두므로 안전합니다. 
+
+GCHandle — 강한 간접 참조. 확실하지만 생성/파괴 비용이 있어 꼭 필요한 곳에만
+
+---
+
+그리고 이 셋을 담는 ScriptingReferenceWrapper를 만들면서, 
+포인터 정렬의 하위 2비트를 태그로 재사용해 크기를 uintptr_t 하나로 유지했습니다. 
+
+기존 타입과 크기가 같아야 1:1 교체가 가능하기 때문입니다. 
+
+---
+
+추가로 managed↔native 경계 두 개(managed→native는 Bindings Generator, native→managed는 Proxy Generator)를 통째로 개조해서, 
+GC 할당 객체가 경계를 넘지 못하게 하고 넘으면 진단을 내도록 만들었습니다.
+
+---
+
+fixed / GCHandleType.Pinned가 이제 의미를 갖습니다. 
+전에는 사실상 no-op이었는데 이제 진짜 비용이 있고, 
+핀이 많으면 gen0 압축을 방해해 데이터 지역성이 나빠집니다
+
+---
+
+conservative → precise 전환으로 객체 수명이 달라집니다. 
+Boehm이 스택 오탐 덕에 우연히 살려두던 것들이 더 일찍 죽으면서 잠재 버그가 드러납니다
+
+---
+
+IL2CPP의 Boehm GC는 그대로 유지됩니다.
+
+에디터 / CoreCLR 데스크톱 플레이어 → precise, moving
+IL2CPP 빌드(모바일·콘솔·WebGL) → conservative, non-moving
+
+같은 제품 안에 의미가 다른 두 GC가 공존하게 됩니다.
+
+---
+
+2026년 8월
+
+Unity 6.5 출시 완료
+Unity 6.7 알파(6000.7.0a2) 공개 중
+
+다음 LTS는 6.7
+
+Unity 6.8은 LTS가 아닙니다
+2026년 말 목표
+여기서 Mono 제거 + 에디터까지 CoreCLR + .NET 10 + C# 14가 들어옵니다
+
+Unity 7이 2026년 12월 얼리 베타, 2027년 1분기 정식 출시 목표로 발표
+
+---
+
+indent_size는 들여쓰기 한 단계가 몇 칸인가
+tab_width는 실제 \t 문자 하나를 화면에서 몇 칸 너비로 보여줄지
+tab_width는 보통 indent_size와 같아서 생략해도 됩니다
+
+---
+
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+dotnet_naming_style.private_field.required_prefix = _
+dotnet_naming_style.private_field.capitalization = camel_case
+
+---
+
+interface → IPascalCase
+
+# Symbol group
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+
+# Style: IPascalCase
+dotnet_naming_style.interface_style.required_prefix = I
+dotnet_naming_style.interface_style.capitalization = pascal_case
+
+# Rule
+dotnet_naming_rule.interfaces_should_be_prefixed.symbols = interfaces
+dotnet_naming_rule.interfaces_should_be_prefixed.style = interface_style
+dotnet_naming_rule.interfaces_should_be_prefixed.severity = warning
+
+---
+
+패러다임 이원화
+
+Unity의 GameObject vs DOTS
+
+렌더러 파편화
+
+Built-in / URP / HDRP는 셰이더 호환이 안 되고 에셋이 이식되지 않습니다
+
+---
+
+1. 언어는 하나, 성능 계층은 연속적으로
+2. managed↔native 경계를 첫날에 제대로 긋기
+3. 반복 속도를 성능 지표가 아니라 아키텍처 제약으로
+4. 합성 모델은 하나, 재귀적으로
+  Godot의 "모든 씬이 프리팹이고, 씬은 씬을 품는다"
+  Unity의 GameObject/Prefab/Variant/Nested 미로
+  Unreal의 Actor/Component/BP클래스/Level/DataAsset 계층
+
+5. 리플렉션과 직렬화는 언어 층위에서
+6. 렌더러는 모듈러하되 파편화 금지
+7. 에디터를 엔진 자신의 기술로
+8. 소스 접근
+
+---
+
+Unity 2026년 2분기 실적
+
+Strategic Grow (광고·수익화): $329M, 전년 대비 +63%
+Strategic Create (엔진): $157.5M, +14%
+
+Unity 입장: 수익이 모바일 게임의 광고 노출에서 나오므로 모바일에 투자할 구조적 이유가 확실합니다
+개발자 입장: 엔진 + 광고 SDK + 미디에이션 + IAP + 애널리틱스가 한 벤더에서 나옵니다
+
+---
+
+에셋 파이프라인 — 텍스처 압축이 1급 기능
+엔진 자체를 스트리핑 — 모듈 136개
+렌더링 — 타일 기반 GPU를 기준선으로 설계
+
+Adaptive Performance
+온도와 전력 상태를 미리 읽어서 스로틀링이 시작되기 전에 해상도·LOD·이펙트 품질을 선제적으로 낮춥니다
+
+IL2CPP와 Burst의 ARM 코드 생성
+최종 컴파일은 Android NDK의 Clang과 Apple Clang이 합니다. 
+구글·애플의 컴파일러 개선을 그대로 상속받는 구조
+
+설치본의 AndroidPlayer가 NDK, SDK, OpenJDK, Gradle 툴체인을 전부 번들합니다. 
+환경 구성 단계가 통째로 사라집니다
+
+---
+
+Boehm GC
+non-moving이라 compaction으로 인한 정지가 없습니다
+
+Unity는 Incremental GC를 넣었습니다
+Unity의 GC는 "빠른" 쪽이 아니라 "예측 가능하게 느린" 쪽으로 튜닝
+
+---
+
+진단·시뮬레이션
+DeviceSimulatorModule
+에디터에서 기기 해상도, 노치, 세이프 에어리어, 기기별 스펙을 시뮬레이션
+
+Profiler를 USB/네트워크로 실기기에 붙여 
+관리 메모리·네이티브 메모리·GPU·렌더 스레드를 동시에 관측
+
+---
+
+UE의 PSO precaching이 최근 몇 년 크게 성숙했습니다
+Unity의 ShaderVariantCollection 워밍업은 여전히 수동에 가깝고
+셰이더 컴파일 히칭은 Unity 모바일의 고질
+
+---
+
+Unity가 Force Text serialization을 사용할 때 
+Rider가 .unity, .prefab, .asset까지 파싱해서 인덱싱합니다
+
+Unity 신규 프로젝트의 기본 serialization mode도 현재 Force Text
+
+---
+
+Unity-aware Inspection
+
+void OnEnable(int x)   // 잘못된 Unity event signature
+
+var x = new MyMonoBehaviour();
+MonoBehaviour를 new 하는 것도 경고하고 AddComponent<T>()를 제안합니다
+
+---
+
+C# 2.0 iterators (2005)
+Unity Coroutine이 IEnumerator + yield return 위에 세워짐
+
+async/await = C# 5.0 (2012)
+Unity의 스크립팅 런타임은 .NET 3.5 프로파일에 2017년까지 묶여 있었습니다
+.NET 4.x 런타임이 Unity 2017.1에 실험 도입, 2018.3에 기본값
+
+---
+
+Awaitable은 Coroutine을 대체하려고 만든 게 아니라 Task를 대체하려고 만든 것입니다
+
+Task 반환 메서드는 호출할 때마다 할당합니다
+
+Awaitable은 풀링으로 해결합니다
+await가 끝나면 내부 풀로 반환됩니다
+AwaitableAsyncMethodBuilder
+
+대가
+
+같은 인스턴스를 두 번 await하면 안 됩니다
+WhenAll/WhenAny도 없어서 Task로 변환해야 합니다
+
+---
+
+Task: continuation이 비동기로 실행
+Awaitable: continuation이 동기로 실행
+
+---
+
+플레이어 루프 인지
+Unity thread and update loop-aware execution scheduling
+
+NextFrameAsync, EndOfFrameAsync, FixedUpdateAsync, WaitForSecondsAsync, 
+BackgroundThreadAsync / MainThreadAsync
+
+---
+
+Coroutine의 원래 가치가 이것
+
+yield return null은 Update 직후, 
+WaitForEndOfFrame은 렌더링 직후, 
+WaitForFixedUpdate는 FixedUpdate 직후
+프레임 위상을 지정합니다
+
+Task에는 이 개념 자체가 없습니다
+
+---
+
+StartCoroutine은 코루틴을 MonoBehaviour에 묶습니다. GameObject가 파괴되면 자동으로 멈춥니다.
+async 메서드에는 그런 게 없습니다. 오브젝트가 파괴돼도 계속 돌고, 파괴된 오브젝트를 만지는 순간 터집니다
+
+Unity가 MonoBehaviour.destroyCancellationToken(2022.2)으로 이 구멍을 메웠고
+
+---
+
+함수 색칠(function coloring)
+
+Start(), 버튼 콜백, Update() 어디서든 StartCoroutine을 부를 수 있습니다
+async는 호출 체인을 전부 async로 물들이고, async void로 끊으면 예외가 소실됩니다
+
+---
+
+Unity Pausepoint:
+
+조건 충족
+→ 현재 frame 끝에서 Unity를 Pause
+→ Unity Inspector/Scene/Game 창에서 상태 조사
+
+Convert to Unity pausepoint
+Rider가 해당 C# 문장에서 debugger를 붙잡고 있는 상태로 남기는 대신, 
+현재 프레임이 끝난 뒤 Unity Editor를 Pause 상태로 전환합니다
+
+Tracepoint
+
+breakpoint처럼 위치 지정
+→ 실행은 멈추지 않음
+→ expression 값을 로그로 출력
+
+Suspend를 끈 breakpoint
+Evaluate and log에는 현재 scope에서 사용할 수 있는 C# expression을 넣습니다
+그러면 실행은 계속되고 해당 줄을 지날 때마다 값이 기록됩니다
+
+---
+
+기본값은 Awaitable, Coroutine은 좁은 예외
+
+Coroutine이 못 하는 것들
+
+반환값이 없습니다.
+yield return을 try/catch 블록 안에 쓸 수 없습니다. C# 문법 제약
+StopCoroutine은 있지만 협조적 취소 모델이 아닙니다
+백그라운드 스레드로 못 갑니다. 메인 스레드 전용입니다
+여러 개를 동시에 기다리려면 카운터를 손으로 셉니다
+기존 async API와 안 붙습니다; AsyncOperation, Addressables, HttpClient
+
+---
+
+Coroutine을 남겨둘 경우
+
+반환값도 예외 처리도 없는 fire-and-forget 시각 효과
+피격 플래시, 쿨다운 깜빡임, 간단한 트윈처럼 "오브젝트와 함께 살고 함께 죽으면 그만"인 것들
+
+StartCoroutine 한 줄이면 수명 관리가 끝나고, 호출부를 async로 물들이지 않습니다
+
+---
+
+async 규율
+
+(1) 항상 destroyCancellationToken을 넘긴다
+(2) async void는 최상위 진입점에서만
+  async void는 예외를 호출자에게 전달하지 못합니다
+(3) 같은 Awaitable 인스턴스를 두 번 await하지 않는다
+(4) 병렬 대기가 필요하면 AsTask()로 변환
+
+---
+
+(5) 무거운 CPU 작업은 스레드를 오간다
+
+await Awaitable.BackgroundThreadAsync();
+var parsed = ParseHeavy(File.ReadAllText(path));   // Unity API 호출 금지 구간
+await Awaitable.MainThreadAsync();
+
+---
+
+Unity 4.0 (2012) / Unity 5.0 (2015)
+런타임: Mono 2.6 포크 — Mono 2.6은 2009년 12월 출시
+API 프로파일: .NET 3.5 equivalent — .NET Framework 3.5는 2007년 11월
+C# 버전: C# 4 — 2010년 4월 출시
+
+---
+
+Unity 2017.1 (2017)
+
+기존 .NET 3.5 equivalent 유지 (C# 4)
+새로 .NET 4.6 equivalent 실험적 도입 — .NET Framework 4.6은 2015년 7월
+새 런타임의 C# 버전: C# 6 — 2015년 7월 출시
+
+---
+
+Unity 2018.x — Roslyn 도입
+
+.NET 3.5 equivalent + mcs → C# 4 (2010)
+.NET 4.6 equivalent + Roslyn → C# 7.3 — 2018년 5월 출시
+
+---
+
+Unity 2019.1 / 2019.4 LTS (2019~2020)
+
+런타임: .NET 4.6 equivalent 단일 (구 .NET 3.5 런타임 제거)
+컴파일러: Roslyn
+C# 버전: C# 7.3 (2018년 5월)
+
+---
+
+Unity 2020.2 / 2020.3 LTS (2020~2021)
+런타임: .NET 4.6 equivalent
+C# 버전: C# 8.0 — 2019년 9월 출시
+미지원 기능: default interface methods, indices and ranges, asynchronous streams, asynchronous disposable
+
+미지원 목록이 전부 런타임 지원이 필요한 항목들입니다
+"폴리필로 못 메우는 것들"이 이때부터 드러납니다.
+
+---
+
+Unity 2021.2 / 2021.3 LTS / 2022.x / 2023.x / Unity 6 (6000.x)
+
+런타임: Mono (Unity 포크)
+Mono 6.13.0 — Mono 6.x는 2019년 계열
+
+API 프로파일: .NET Standard 2.1 — 2019년 9월 확정 후 동결
+컴파일러: Roslyn
+C# 버전: C# 9.0 — 2020년 11월 출시
+
+미지원
+covariant return types, module initializers, init only setters
+
+Unity uses the Boehm-Demers-Weiser garbage collector 
+for both the Mono and IL2CPP scripting backends 
+and incremental mode by default
+
+---
+
+Unity 6.8 (2026년 말 목표)
+
+런타임: CoreCLR (Mono 완전 제거)
+TFM: net10.0 단일 — .NET 10은 2025년 11월
+C# 버전: C# 14 — 2025년 11월
+
+---
+
+Build Profiles
+→ Android
+→ Development Build ✓
+
+Build to Device:
+    Patch And Run
+
+Unity가 매번 APK 전체를 재빌드하는 대신 지난 빌드 이후 변경된 파일만 처리해서 기기에 보냅니다
+
+---
+
+6.8/CoreCLR에서 깨질 것들
+
+BinaryFormatter — .NET 10에서 obsolete 처리되고 보안 문제도 있습니다
+BinaryReader/BinaryWriter로
+
+도메인 리로드에 의존하는 static 초기화
+지금부터 Fast Enter Play Mode를 켜고 개발하세요
+
+AppDomain.CurrentDomain.GetAssemblies() — 언로드 중인 어셈블리를 반환할 수 있습니다
+UnityEngine.Assemblies.CurrentAssemblies.GetLoadedAssemblies()로
+
+AppDomain.CurrentDomain.DomainUnload — 6.8에서 아예 발생하지 않습니다
+Lifecycle API([AfterCodeReloadSerialization], [BeforeCodeUnloading])로
+
+Mono 전용 P/Invoke (MonoPosixHelper.dll 등)
+라이브러리가 사라져 DllNotFoundException
+
+---
+
+obsolete로 마킹된 API
+
+FindObjectOfType / FindObjectsOfType 
+→ FindFirstObjectByType, FindAnyObjectByType, FindObjectsByType(FindObjectsInactive, FindObjectsSortMode)
+
+WWW — 통째로 죽었습니다. UnityWebRequest
+
+UnityWebRequest.isNetworkError / isHttpError → UnityWebRequest.result
+
+UnityWebRequest.GetTexture / GetAudioClip / GetAssetBundle → UnityWebRequestTexture 등 전용 클래스
+
+AssetBundle.LoadAll / LoadAsync → GetAllAssetNames() 계열
+
+ParticleSystem의 직접 프로퍼티 (loop, playOnAwake, maxParticles, enableEmission, startRotation...) 
+→ 모듈 구조 (main.*, emission.*)
+
+GUITexture — 제거됨. UI.Image
+
+---
+
+Built-in Render Pipeline → URP (고사양 타깃이면 HDRP)
+
+Legacy Input Manager (Input.GetKey, Input.GetAxis) → Input System 패키지
+
+Animation 컴포넌트 (레거시 애니메이션) → Animator (Mecanim)
+
+Resources 폴더 → Addressables
+
+AssetBundle 직접 관리 → Addressables
+
+UNET / 구 Networking — 제거됨
+
+PlayerPrefs를 세이브 데이터로 — 평문, 크기 제한, 플랫폼별 저장 위치가 제각각
+설정값 몇 개까지만
+
+---
+
+SendMessage / BroadcastMessage / SendMessageUpwards
+인터페이스나 직접 참조로
+
+Find*ByType / GameObject.Find를 Update에서
+씬 전체 탐색입니다. 초기화 때 한 번 캐싱하세요
+
+Unity's serialization system doesn't support C# records
+
+---
+
+Span<T>은 연속된 메모리 영역을 allocation 없이 잘라서 다루기 좋고, 
+stackalloc은 작은 임시 버퍼를 stack에 둘 수 있습니다
+stack 크기가 제한적이므로 작은 버퍼에 보수적으로 사용할 것
+
+---
+
+UnityEngine.Pool.ObjectPool<T>
+
+private ObjectPool<Bullet> _pool;
+
+_pool = new ObjectPool<Bullet>(
+    createFunc: CreateBullet,
+    actionOnGet: bullet => bullet.gameObject.SetActive(true),
+    actionOnRelease: bullet => bullet.gameObject.SetActive(false),
+    actionOnDestroy: bullet => Destroy(bullet.gameObject),
+    defaultCapacity: 32,
+
+Bullet bullet = _pool.Get();
+
+_pool.Release(bullet);
+
+---
+
+ProfilerMarker
+
+private static readonly ProfilerMarker UpdateMarker = new("EnemyManager.UpdateEnemies");
+
+using (UpdateMarker.Auto())
+{
+    // ...
+}
+
+---
+
+태그가 붙은 카메라가 비활성화되면 Camera.main은 null을 반환합니다
+매 프레임 접근하는 코드는 카메라를 잠깐 끄는 연출 하나에 NullReferenceException을 냅니다
+
+---
+---
+
+Module Initializers (C# 9)
+
+[ModuleInitializer]를 붙인 정적 메서드를
+그 어셈블리(모듈)의 다른 어떤 코드보다 먼저 런타임이 자동 호출합니다.
+
+// Bootstrap::Init — 어셈블리 로드 시 런타임이 알아서 호출
+[ModuleInitializer]
+internal static void Init() => Serializers.RegisterAll();
+
+제약: static, 매개변수 없음, void 반환, 제네릭 아님, 제네릭 타입 안에 있으면 안 됨,
+
+라이브러리가 초기화를 필요로 할 때 사용자에게 "쓰기 전에 Init() 부르세요"를 요구하지 않으려면 이런 훅이 있어야 합니다
+
+왜 Unity가 지원 안 하나
+
+런타임 기능이기 때문입니다
+
+---
+
+Unity의 대체 수단
+
+[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
+static void Init() { /* ... */ }
+
+---
+
+UE — FName
+
+전역 이름 테이블에 인터닝해 두고 Value(인덱스)만 들고 다닙니다
+
+비교가 정수 비교
+원본 문자열이 살아 있어 역참조 가능 (ToString(), 에디터 표시, 로그)
+
+---
+
+Unity
+
+TagHandle (UnityEngine.CoreModule)
+문자열을 한 번 핸들로 바꿔 두고 비교
+
+_playerTag = TagHandle.GetExistingTag("Player");
+other.CompareTag(_playerTag)
+
+gameObject.tag == "Player" — native→managed 문자열 마샬링으로 할당까지 발생
+
+CompareTag("Player") — 할당은 없지만 매번 문자열 비교
+호출마다 문자열을 태그로 해석하는 작업
+
+CompareTag(TagHandle) — can be faster than the overload which takes a string
+particularly if the same TagHandle can be reused for many calls
+그 해석을 미리 해둡니다. 재사용 횟수가 많을수록 이득
+
+---
+
+이름은 System.String이고 CLR이 리터럴을 이미 인터닝합니다
+CLR 인터닝은 컴파일 타임 리터럴에만 적용됩니다
+인터닝은 양쪽 다 리터럴일 때만 작동합니다
+
+---
+
+DebugConsole.Register(
+    "rogue.projectile.DrawDebug",
+    false);
+
+[ConsoleCommand("rogue.projectile.DrawDebug")]
+private static void SetProjectileDrawDebug(bool enabled)
+{
+    RogueCVars.ProjectileDrawDebug = enabled;
+}
+
+---
+
+Reified generics(C# 2.0). Java의 erasure에 대한 반대 증명
+"제네릭 타입 정보를 런타임까지 살릴 수 있다"를 실증
+
+---
+
+? 하나가 완전히 다른 두 메커니즘을 가리킵니다
+
+int? = Nullable<int> — 실제 struct, 박싱되고, HasValue가 있음
+string? = 아무것도 아님 — 어트리뷰트 메타데이터일 뿐
+
+제네릭에서 T?를 쓰려는 순간 지옥이 열립니다
+
+---
+
+Find<string> → null 반환. 의도대로
+Find<int> → 0 반환. Nullable<int>가 아닙니다
+
+즉 "못 찾음"과 "0을 찾음"을 구별할 수 없습니다
+
+C#은 제네릭 제약으로 오버로드할 수 없습니다
+제약은 시그니처의 일부가 아니기 때문
+
+---
+
+readonly ref와 ref readonly가 서로 다른 뜻
+readonly ref readonly도 유효
+
+여기에 scoped, scoped ref, ref struct, readonly ref struct, allows ref struct
+
+---
+
+매크로도 comptime도 없어서 전부 attribute로 밀어 넣습니다
+Zig의 comptime이나 Rust의 매크로
+
+[CallerArgumentExpression], [ModuleInitializer], [InterpolatedStringHandler], [InlineArray]
+어트리뷰트로 위장한 언어 기능
+진짜 컴파일 타임 실행 기제가 없으니 컴파일러가 특정 이름의 어트리뷰트를 알아보는 방식으로 밀어 넣습니다
+
+---
+
+Higher-kinded types가 없어서 generic math를 만드는 데 CLR을 고쳐야 했습니다
+
+Haskell의 typeclass나 Rust의 trait이면 자연스럽게 표현될 것을, 
+C# 11은 static abstract interface members라는 새 런타임 기능을 만들어 우회했습니다
+
+---
+
+// 가상 문법 — C#에 없습니다
+interface IFunctor<F<_>>
+{
+    F<B> Map<A, B>(F<A> source, Func<A, B> f);
+}
+
+이게 되면 List, Task, Option, IEnumerable이 전부 IFunctor를 구현하고, 
+"임의의 컨테이너에 대해" 일반화된 코드를 쓸 수 있습니다.
+
+---
+
+// MathUtil::Sum — C# 10 이전에는 불가능
+static T Sum<T>(IEnumerable<T> values)
+{
+    T total = default;
+    foreach (var v in values) total += v;   // 오류: T에 + 가 있는지 알 수 없음
+    return total;
+}
+
+"T가 +를 지원한다"를 표현할 제약이 없었습니다
+C#의 연산자는 static 멤버인데, 인터페이스가 static 멤버를 선언할 수 없었기 때문
+
+---
+
+C# 11이 인터페이스에 static abstract 멤버를 허용했습니다
+
+static abstract TResult operator +(TSelf left, TOther right);
+
+---
+
+제네릭 타입 별칭이 없습니다
+
+C# 12가 "alias any type"을 줬지만 
+using MyMap<T> = Dictionary<string, List<T>>;은 여전히 안 됩니다
+
+---
+
+C# 11까지 using 별칭은 named type만 가능했습니다
+
+using MyInt  = System.Int32;                         // OK
+using MyList = System.Collections.Generic.List<int>; // OK (닫힌 제네릭)
+using Point  = (int X, int Y);                       // 오류 — 튜플은 named type이 아님
+using Buffer = int[];                                // 오류
+
+C# 12부터 아무 타입이나 별칭이 됩니다.
+
+global using Point  = (int X, int Y);      // 튜플
+global using Buffer = int[];               // 배열
+using Handler = System.Action<string>;
+// unsafe 컨텍스트면 포인터도: using PInt = int*;
+
+---
+
+남은 한계 — 제네릭 별칭은 여전히 안 됩니다
+using MyMap<T> = Dictionary<string, List<T>>;   // 여전히 불가
+
+닫힌 구성 타입만 별칭이 됩니다
+
+---
+
+typeof(Alias<>) — CLR에 부분 개방 타입이 없습니다
+
+using StringDictionary<TValue> = Dictionary<string, TValue>;가 있을 때
+typeof(StringDictionary<>)가 뭐가 돼야 할까요?
+
+Dictionary<string,> 같은 부분 개방 타입을 표현할 IL이 없습니다
+
+제안서
+금지: typeof(StringDictionary<>)를 컴파일 오류로
+런타임 합성
+
+---
+
+이름 붙이는 안 — using MyList<T> = List<T>;. 순서 재배치와 부분 바인딩이 가능합니다
+typeof 스타일 — using StringDictionary<> = Dictionary<string,>;
+
+C#에서 개방 제네릭을 참조하는 방법이 인자 생략(typeof(Dictionary<,>))인데, 
+두 번째 문법을 만들면 혼란을 늘린다
+
+---
+
+CLR에 별칭 개념이 없습니다
+어셈블리에 별칭이라는 흔적이 남지 않습니다
+
+사람들이 실제로 원하는 버전, 라이브러리에서 MyMap<T>를 내보내는 것은 
+언어 기능이 아니라 메타데이터 포맷 변경
