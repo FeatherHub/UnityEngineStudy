@@ -1,0 +1,580 @@
+[System.Serializable]
+public partial struct Scene
+
+[SerializeField] private SceneHandle m_Handle;
+
+UnityEngine.SceneManagement.SceneHandle
+SceneHandle은 "a wrapper around an EntityId"
+
+UnityEngine.EntityId
+A unique identifier for a Unity object
+64-bit 식별자
+
+System.ValueType → SceneHandle
+struct
+
+---
+
+그래서 Scene은
+
+Instantiate/Destroy의 대상이 아니고
+직렬화 필드에 참조로 꽂을 수 없고
+hideFlags도 instanceID도 없다
+
+---
+
+LevelGameManager 계열
+Scene마다 하나씩 존재하는 singleton
+
+Scene은 이것들을 "담는 통"
+
+---
+
+authoring 단위 — Assets/ 아래의 .unity
+빌드 산출물 — level0, level1, ... 로 cook된 serialized file
+런타임 — SceneManager 배열의 슬롯 하나
+
+---
+
+SceneManager.LoadScene("Boss")
+
+문자열로 BuildSettings의 m_Scenes를 조회
+index를 얻고 levelN을 여는 것
+
+---
+
+boot.config
+
+---
+
+globalgamemanagers
+에디터의 ProjectSettings/ 아래 .asset들
+
+---
+
+LoadFirstScene_Internal
+
+scene 파일 헤더에 m_PreloadTable이 있다
+이 씬이 참조하는 외부 객체 전부의 목록
+
+이걸 먼저 다 로드한 뒤에 씬 객체를 만든다
+
+"씬 로딩 시간 = 씬이 참조하는 asset의 로딩 시간"의 정체가 이 테이블
+
+---
+
+BeforeSceneLoad
+
+객체는 존재하지만 아직 아무 콜백도 받지 않은 상태
+objects are loaded into memory but before Awake has been called
+
+---
+
+Awake / OnEnable
+
+씬 전체에 대해 Awake가 먼저 돌고, 그 다음 OnEnable이 돈다
+
+---
+
+AfterSceneLoad
+
+Start는 아직
+Start는 첫 프레임 PlayerLoop의
+EarlyUpdate/ScriptRunDelayedStartupFrame에서 호출된다
+
+---
+
+Enter Play Mode Options로 domain reload를 끄면
+static 필드가 이전 세션 값을 그대로 들고 시작한다
+
+이때 SubsystemRegistration / AfterAssembliesLoaded 콜백은
+domain reload를 대체하는 리셋 지점으로 계속 호출된다
+
+static 초기화를 생성자나 필드 initializer가 아니라
+[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+에 두는 관용구가 여기서 나왔다
+
+---
+
+handle을 인자로 넘겨 native에 물어본다. C# 쪽에 캐시가 없다
+
+native SceneManager가 들고 있는 scene 배열
+
+---
+
+public partial class SceneManager { ... }
+
+교체 가능한 virtual 층
+public partial class SceneManagerAPI
+
+native 바인딩
+
+[NativeHeader("Runtime/SceneManager/SceneManager.h")]
+[StaticAccessor("SceneManagerBindings", StaticAccessorType.DoubleColon)]
+
+---
+
+scene 배열
+active scene 하나
+DontDestroyOnLoad 전용 내부 scene 하나
+
+---
+
+SceneManagerAPI.overrideAPI
+
+Addressables가 끼어드는 지점
+LoadSceneAsyncByNameOrIndex를 가로채 번들에서 씬을 연다
+
+---
+
+GameManager = 엔진 서브시스템의 설정·상태를 담는 singleton 객체의 base
+
+GlobalGameManager — 프로세스에 하나. globalgamemanagers에 저장
+LevelGameManager — Scene마다 하나. .unity 파일에 저장
+
+---
+
+LevelGameManager
+
+OcclusionCullingSettings
+RenderSettings
+LightmapSettings
+NavMeshSettings
+
+빈 Scene을 만들어 .unity를 열면 GameObject보다 먼저 이 넷이 나온다
+
+--- !u!29 &1
+--- !u!104 &2
+--- !u!157 &3
+--- !u!196 &4
+
+OcclusionCullingSettings 29
+RenderSettings 104
+LightmapSettings 157
+NavMeshSettings 196
+
+---
+
+Scene마다 자기 fog/ambient/skybox (RenderSettings)
+자기 lightmap 배열과 light probe (LightmapSettings)
+자기 navmesh 참조 (NavMeshSettings)
+자기 occlusion culling 데이터 (OcclusionCullingSettings)
+
+---
+
+additive load에서 이 값들이 충돌하는 이유
+씬마다 존재하는데 화면은 하나뿐이라, active scene의 것이 채택된다
+
+"조명이 additive 로드하면 이상해진다"의 정체
+LevelGameManager의 중복
+
+---
+
+Data folder not found
+There should be '<이름>_Data' folder next to the executable
+
+Windows 기준 MyGame.exe 옆에 MyGame_Data/
+
+exe만 rename하면 실행이 안 되는 이유
+폴더도 같이 바꿔야 한다
+
+---
+
+ProjectSettings/*.asset이 그대로 넘어온 것들
+
+PlayerSettings ← ProjectSettings.asset
+제품명, 아이콘, 스플래시 설정, scripting backend, API compatibility, preloaded assets 목록
+
+TimeManager ← TimeManager.asset
+fixedDeltaTime, timeScale, maximumDeltaTime
+
+InputManager ← InputManager.asset
+구 Input Manager의 axis 정의
+
+AudioManager ← AudioManager.asset
+sample rate, DSP buffer size, virtual/real voice 개수
+
+PhysicsManager ← DynamicsManager.asset
+파일 이름이 옛 이름 그대로 남아 있다
+gravity, layer collision matrix, solver iteration
+
+Physics2DSettings ← Physics2DSettings.asset
+
+GraphicsSettings ← GraphicsSettings.asset
+SRP asset 참조, always-included shaders, tier settings
+부팅 순서상 그래픽 디바이스보다 먼저 읽혀야 하는 것이 여기 있다
+
+QualitySettings ← QualitySettings.asset
+quality level 배열, 현재 레벨
+
+TagManager ← TagManager.asset
+tags, layers, sorting layers
+
+NavMeshProjectSettings ← NavMeshAreas.asset
+agent type, area cost. 씬별 NavMeshSettings와 짝이다
+
+UnityConnectSettings, VFXManager, MultiplayerManager, ClusterInputManager
+각각 대응 .asset이 있다
+
+---
+
+BuildSettings — m_Scenes / m_Levels
+에디터의 EditorBuildSettings.asset이 여기로 변환된다
+"첫 씬이 무엇인가"를 아는 유일한 주체
+
+---
+
+MonoManager — m_Scripts
+로드할 어셈블리와 MonoScript 목록.
+
+---
+
+ResourceManager — m_Container(경로 → objectID), m_DependentAssets
+
+---
+
+RuntimeInitializeOnLoadManager
+RuntimeInitializeOnLoads.json을 읽어 채워지는 콜백 목록
+
+---
+
+PreloadData — preloadedAssets, preloadedPlugins
+
+---
+
+instanceID → EntityId
+
+Starting in Unity 6.4, Unity replaces the 32-bit integer InstanceID with the 64-bit EntityId struct
+
+EntityId unifies the way GameObjects and entities identify Unity objects
+and removes legacy assumptions about how object identifiers behave
+
+---
+
+legacy assumption들
+
+부호 — 음수면 런타임 생성, 양수면 persistent
+지금은 아무 의미 없고 모든 값이 양수
+
+정렬 순서 — instanceID 정렬이 "우연히" 생성 순서를 반영하는 경우가 있었다
+EntityId는 순서에 의미가 없다. 파괴된 객체의 값을 재사용하기 때문에
+
+즉 index + generation 조합의 handle로 읽히지만, bit layout은 비공개이고
+버전마다 바뀔 수 있다고 명시되어 있다
+
+---
+
+FindObjectsSortMode enum 자체가 obsolete
+Object.FindFirstObjectByType obsolete
+
+instanceID 순서에 의존했기 때문
+InstanceID sort accounted for around 93% of the time spent in FindObjectsOfType
+
+---
+
+타입 안전
+
+int였을 때는 아무 정수나 들어갈 수 있었다
+IMGUI control ID, 배열 인덱스, hash가 전부 같은 타입
+
+struct가 되면서 컴파일러가 막는다
+GetHashCode를 식별자로 쓰지 말라는 경고도 여기서 나온다
+
+---
+
+GameObject 세계와 Entities(ECS) 세계가 서로 다른 식별 체계를 갖고 있었다
+그 둘을 같은 타입으로 합친 것이 EntityId다
+
+---
+
+classID
+내부 이름 persistentTypeID
+
+persistent = 디스크에 남는다
+
+직렬화된 데이터에 적히는 타입 이름
+
+---
+
+왜 이름이 아니라 숫자인가
+
+C++ RTTI를 쓸 수 없다
+type_info의 이름은 컴파일러마다 장식 규칙이 다르고 표준이 아니다
+
+---
+
+0 ~ 363 — 초창기 순차 할당
+Object 0, GameObject 1, Component 2, LevelGameManager 3, Transform 4, TimeManager 5
+
+1001 ~ 1127 — 에디터 전용
+PrefabInstance 1001, SceneAsset 1032, AssetImporter 1003, ModelImporter 1040
+
+100000 ~ 100011 — 타입 표기용 자리
+int, bool, float, void, Vector3f, MonoObject, Collision
+
+---
+
+난수 구간
+
+Tilemap 1839735485
+VisualEffect 2083052967
+SpriteAtlas 687078895
+StreamingManager 1403656975
+MultiplayerManager 655991488
+
+모듈과 패키지가 독립적으로 타입을 등록하기 시작하면서
+중앙 번호부에서 다음 번호를 받아오는 방식이 무너졌다
+
+이름 hash 기반으로 바꿔 충돌 확률을 없앤 것이다
+"Unity가 모노리스에서 모듈 집합으로 바뀐 시점"이 이 번호 분포에 남아 있다
+
+---
+
+"Classes defined from scripts will always have class ID 114 (MonoBehaviour)."
+
+classID는 native 타입만의 것이다
+managed 타입은 여기 참여하지 못한다
+
+---
+
+Object (0)
+└── GameManager (9)
+    ├── GlobalGameManager (6)                    → globalgamemanagers
+    │   ├── PlayerSettings (129)
+    │   ├── InputManager (13)
+    │   ├── TagManager (78)
+    │   ├── AudioManager (11)
+    │   ├── ShaderNameRegistry (94)
+    │   ├── MonoManager (116)
+    │   ├── GraphicsSettings (30)
+    │   ├── TimeManager (5)
+    │   ├── DelayedCallManager (98)
+    │   ├── PhysicsManager (55)
+    │   ├── BuildSettings (141)
+    │   ├── QualitySettings (47)
+    │   ├── ResourceManager (147)
+    │   ├── NavMeshProjectSettings (126)
+    │   ├── Physics2DSettings (19)
+    │   ├── ClusterInputManager (236)
+    │   ├── RuntimeInitializeOnLoadManager (300)
+    │   ├── UnityConnectSettings (310)
+    │   ├── StreamingManager (1403656975)
+    │   ├── VFXManager (937362698)
+    │   └── MultiplayerManager (655991488)
+    └── LevelGameManager (3)                     → .unity
+        ├── OcclusionCullingSettings (29)
+        ├── RenderSettings (104)
+        ├── LightmapSettings (157)
+        └── NavMeshSettings (196)
+
+---
+
+21 + 4 = 25. m_ManagerTypes 테이블의 크기와 정확히 같다
+
+---
+
+(1) 직렬화되는 설정 객체 — GameManager 계열
+
+사실 대부분 "Settings"가 맞는 이름이다
+
+PhysicsManager ↔ Physics2DSettings
+InputManager ↔ GraphicsSettings
+NavMeshProjectSettings ↔ NavMeshSettings
+
+---
+
+(2) 엔진 서브시스템의 소유자 — 상태와 스레드를 가진다
+
+PersistentManager — 직렬화와 파일 I/O의 심장. GUID/fileID 해석이 여기
+PreloadManager — 비동기 로드 큐와 전용 스레드
+MemoryManager — allocator 계층. boot.config 직후에 초기화된다
+AsyncReadManager, ContentLoadManager, LogManager, PluginManager, ProfilerManager
+
+이쪽이 실제로 "관리"를 한다
+
+---
+
+(3) 인스턴스 레지스트리 — "이 타입의 살아있는 것 전부"
+
+BaseUpdateManager, GameObjectManager, AABBManager, LightManager,
+SkinnedMeshRendererManager, ReflectionProbeAnchorManager,
+DirectorManager, ConstraintManager, CustomRenderTextureManager
+
+컴포넌트가 생길 때 자기를 등록하고, 매 프레임 이 목록을 batch로 돈다
+
+---
+
+(4) C# static façade — 상태가 0이다
+
+SceneManager, SubsystemManager, SpriteAtlasManager, CustomRenderTextureManager
+
+---
+
+(5) 에디터 도구
+
+EditorSceneManager, PresetManager, PackageManager, VersionControlManager,
+APIUpdaterManager, SubSceneManager, HierarchyWindowManager, PropertyUndoManager
+
+빌드에 존재하지 않는다
+
+---
+
+(6) 플랫폼·서드파티 어댑터
+
+PxControllerManager (PhysX), D3D12DescriptorHeapManager,
+PVRContextManager, RadeonRaysContextManager, PlatformAudioManager
+
+---
+---
+---
+
+index + generation
+
+객체를 배열에 담고 index로 가리킨다고 하자
+3번 슬롯의 주인이 죽고, 나중에 다른 객체가 3번 슬롯에 들어온다
+
+옛 핸들은 여전히 3을 들고 있다
+역참조하면 크래시가 나지 않는다. 조용히 엉뚱한 객체를 돌려준다
+
+해법이 세대 번호
+
+슬롯마다 generation 카운터를 둔다
+슬롯을 재사용할 때마다 1 올린다
+핸들은 index와 함께 그때의 generation을 복사해 들고 다닌다
+
+역참조할 때 handle.generation == slot.generation을 본다
+다르면 "이미 죽었다"
+
+InstanceID → EntityId의 크기 확장이 여기서 설명된다
+
+---
+
+After Unity destroys an object, it can reuse that object's EntityId value for a different object
+
+EntityId ordering is arbitrary
+two objects created one after another can have values in any order
+
+the bit layout is an implementation detail
+index와 generation에 몇 비트씩 줄지는 언제든 바꿀 수 있다
+
+---
+
+Unity DOTS의 Entity — { Index, Version }
+Unity의 SceneHandle — EntityId 래퍼
+Unreal의 FWeakObjectPtr
+
+// FWeakObjectPtr — Unreal의 같은 해법
+int32 ObjectIndex;
+int32 ObjectSerialNumber;
+
+UE는 32+32로 두 필드를 나눠 갖고, Unity는 64bit 하나에 접어 넣었다
+
+---
+
+classID 114
+
+classID는 엔진 빌드 때 확정된다. 사용자 스크립트는 그 후에 컴파일된다
+native는 사용자 타입을 타입으로 알지 못한다
+통 하나에 넣고, 내용물의 해석은 다른 데 위임한다
+
+---
+
+managed 타입 → native classID 매핑
+
+자기에게 없으면 조상 체인을 타고 올라가 찾는다
+사용자 스크립트의 조상 체인 끝은 MonoBehaviour뿐
+그래서 전부 114에 도달한다
+
+---
+
+MonoBehaviour와 ScriptableObject는 managed 계층에서만 형제이고
+native 직렬화 계층에서는 같은 것이다
+
+---
+
+NativeFormatImporter가 만드는 asset의 main object가 11400000
+Material 2100000, Texture2D 2800000, Mesh 4300000, AnimationClip 7400000
+
+classID × 100000이 관례
+
+모든 SO asset이 예외 없이 같은 11400000
+전부 114니까 구별할 수 없다
+
+---
+
+Strip Engine Code는 classID 단위로 돈다
+
+사용자 스크립트는 이 판정에 참여할 수 없다. 전부 114 하나로 보이니까
+managed 코드 스트리핑은 IL2CPP 쪽에서 link.xml로 완전히 별도로 판단한다
+
+---
+
+UnityEngine.Object
+IntPtr m_CachedPtr;   // native 객체의 주소
+
+managed Camera는 native Camera를 상속하지 않는다
+서로 독립된 두 객체가 1:1로 짝지어져 있고, managed 쪽이 native 주소를 캐시한다
+
+---
+
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Interface, Inherited = true)]
+[RequiredByNativeCode]
+sealed class ExtensionOfNativeClassAttribute : Attribute
+{
+}
+
+---
+
+[NativeHeader("Runtime/Camera/Camera.h")]
+[UsedByNativeCode]
+public sealed partial class Camera : Behaviour
+{
+    [NativeProperty("Near")] extern public float nearClipPlane { get; set; }
+}
+
+---
+
+C#은 "내 native 헤더는 이것이고, 이 멤버들은 저쪽에 있다"까지만 적는다
+
+엔진 빌드 시 생성기가 이 선언을 읽어서
+C++ ↔ C# 글루 코드를 만들고
+managed 타입에 표식을 찍고
+(native class ↔ managed type) 쌍을 등록 테이블에 넣는다
+
+---
+
+MonoBehaviour 파생 클래스의 주소
+
+(GUID, fileID) → MonoScript → (assembly, namespace, class) → managed Type
+
+---
+
+.cs 파일도 asset이다. .meta에 GUID가 붙는다
+
+MonoImporter가 import하면 MonoScript(115) 객체가 되고, fileID는 11500000
+
+---
+
+MonoScript가 들고 있는 것
+
+m_AssemblyName
+m_ClassName
+m_Namespace
+m_ExecutionOrder
+m_PropertiesHash
+m_DefaultReferences
+
+---
+
+MonoManager(116)의 m_Scripts가 그 전체 목록
+MonoBehaviour의 m_Script 필드가 이 MonoScript를 PPtr로 가리킨다
+
+---
+
+native 타입 — classID 정수 하나. 엔진이 중앙에서 발급하고 유일성을 강제 검증
+script 타입 — (GUID, 11500000). 프로젝트가 로컬에서 발급하고 확률적으로 유일
+
+---
+
+Unity.Cecil.dll — IL 메타데이터 리더
+Unity.SerializationLogic.dll — 직렬화 규칙 엔진
