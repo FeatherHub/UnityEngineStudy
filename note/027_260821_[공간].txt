@@ -1,0 +1,505 @@
+Object (Local) — 메시에 저장된 원본 좌표. 피벗이 원점
+
+localToWorldMatrix
+
+World — 씬 루트 기준. 하이어라키 최상단의 좌표계.
+
+Camera.worldToCameraMatrix
+
+View (Camera / Eye) — 카메라가 원점. 전방이 −Z (Unity 월드는 왼손이지만 view space는 OpenGL 관례를 따라 −Z가 앞).
+
+Camera.projectionMatrix
+
+---
+
+Clip — 동차좌표 (x, y, z, w)
+
+w로 나누기 (perspective divide)
+
+NDC — x, y ∈ [−1, 1].
+
+0~1로 리맵
+
+Viewport — 정규화. 좌하단 (0,0), 우상단 (1,1). 카메라 기준
+
+pixelRect 적용
+
+Screen — 픽셀. 좌하단 (0,0), 우상단 (pixelWidth, pixelHeight)
+
+---
+
+Camera.rect — 화면 어디에 이 카메라가 그려지는가
+정규화 좌표로. 좌하단 (0,0) ~ 우상단 (1,1)
+
+스플릿 스크린이나 미니맵을 만들 때 쓰는 물건
+
+new Rect(0, 0.5f, 1, 0.5f) 이면 화면 위쪽 절반
+
+---
+
+Camera.pixelRect
+
+똑같은 것을 픽셀 단위로
+rect와 pixelRect는 서로 연동돼서 하나를 세팅하면 다른 하나가 따라옵니다
+
+---
+
+Camera.aspect
+
+width ÷ height
+
+Camera.orthographicSize
+
+뷰 볼륨의 절반 높이
+
+세로 전체 높이 = orthographicSize × 2
+가로 전체 너비 = orthographicSize × 2 × aspect
+
+---
+
+Perspective의 대응물은 fieldOfView (기본이 세로 FOV)
+
+height = 2 × d × tan(fov ÷ 2)
+width  = height × aspect
+
+---
+
+Screen.width / height
+
+플레이어 윈도우의 현재 픽셀 크기
+에디터에서는 Game 뷰 해상도
+
+---
+
+Screen.currentResolution
+
+디스플레이의 해상도
+데스크톱 해상도
+
+---
+
+Sprite.pivot
+
+스프라이트가 텍스처에서 차지하는 rect 안에서의 피벗 위치
+픽셀 단위
+인스펙터는 0~1 정규화로 보여주지만 스크립트 프로퍼티는 픽셀
+
+transform.position이 가리키는 지점이자, 회전·스케일의 중심
+
+---
+
+Transform.TransformPoint(p)       // local → world (이동·회전·스케일)
+Transform.TransformDirection(v)   // 회전만
+Transform.TransformVector(v)      // 회전 + 스케일, 이동 없음
+Transform.InverseTransformPoint(p)
+
+---
+
+지뢰
+
+ScreenToWorldPoint에 z를 안 넣으면(0) 카메라 위치가 그대로 나옵니다
+
+---
+
+Sprite.pixelsPerUnit — 1 월드 유닛에 해당하는 픽셀 수. 기본 100
+
+Sprite.rect — 원본 텍스처 상의 사각형(픽셀)
+Sprite.bounds — 월드 유닛 단위
+
+---
+
+1 텍셀 = 1 화면 픽셀 로 맞추려면 세로를 기준으로 계산합니다
+
+cam.orthographicSize = (Screen.height / 2f) / pixelsPerUnit
+
+이걸 직접 하는 대신 Pixel Perfect Camera 컴포넌트(com.unity.2d.pixel-perfect, URP는 내장)
+를 쓰면 Reference Resolution, Upscale Render Texture, Pixel Snapping을 알아서 처리합니다
+
+---
+
+UI 공간
+
+Canvas.renderMode
+
+Screen Space - Overlay — 화면에 직접 그려집니다
+카메라가 아예 없어도 렌더링되고, 항상 씬 위에
+RectTransform 1 유닛 = 화면 1 픽셀 (scaleFactor 적용 전)
+
+Screen Space - Camera
+지정 카메라 앞 planeDistance 거리에 평면이 놓입니다
+원근과 포스트프로세싱의 영향을 받고, 3D 오브젝트가 UI 앞뒤로 낄 수 있습니다
+
+World Space — 그냥 씬 안의 평면. RectTransform이 월드 유닛으로 해석됩니다. 
+VR이나 디에제틱 UI용
+
+---
+
+Canvas.scaleFactor
+스크린 스페이스 캔버스 전체의 스케일
+CanvasScaler가 세팅
+
+---
+
+Canvas.referencePixelsPerUnit
+스프라이트 PPU와 이 값이 같으면 픽셀 밀도가 1:1
+
+---
+
+Constant Pixel Size
+scaleFactor 고정
+고해상도 기기에서 UI가 작아집니다
+
+Scale With Screen Size 
+Reference Resolution 기준으로 스케일
+Match 슬라이더가 0이면 너비, 1이면 높이, 0.5면 로그 보간으로 절충
+
+Constant Physical Size
+dpi 기반으로 물리 크기 유지
+
+---
+
+화면 좌표 ↔ UI 변환은 Camera API가 아니라
+
+RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screenPoint, cam, out var local);
+
+Overlay 캔버스라면 cam에 null을 넘겨야 합니다
+이벤트 핸들러 안이라면 PointerEventData.pressEventCamera를 넘기면 Overlay일 때 알아서 null이 들어갑니다
+
+---
+
+UI Toolkit은 별개 좌표계
+
+원점이 좌상단이고 Y가 아래로 증가하며
+단위는 포인트, 레이아웃은 Flexbox
+
+VisualElement.layout은 부모 기준
+worldBound는 윈도우 기준(윈도우 헤더 높이 포함)
+Screen.safeArea(좌하단 원점)와 섞을 때는 Y를 뒤집어야
+
+---
+
+Screen space 원점이 두 종류
+
+Camera/Input 계열은 좌하단
+IMGUI와 UI Toolkit은 좌상단
+
+---
+
+Camera.rect(화면 속 카메라 영역)
+Viewport space(카메라 속 정규화 좌표)
+
+---
+
+Screen space 값은 "지금 이 기기의 이 프레임"에서만 유효합니다
+
+640×480에서 (320, 240)이던 화면 중앙이 
+4K에서는 (1920, 1080)이 됩니다
+
+Viewport 좌표는 어느 해상도든 (0.5, 0.5)입니다
+
+---
+
+에디터에서 설정하거나 에셋에 저장하거나 코드에 상수로 박는 값은 반드시 viewport 쪽이어야 합니다
+Camera.rect가 정규화인 이유
+
+반대로 Input.mousePosition, UI 히트테스트처럼 
+실제 픽셀이 있어야만 성립하는 것은 screen 쪽입니다
+
+---
+
+rect = (0, 0, 0.5, 1)로 화면 왼쪽 절반만 쓰는 카메라를 만들면, 
+"화면 좌표"와 "이 카메라 안의 좌표"가 갈라집니다
+
+Viewport space는 후자를 가리킵니다
+스플릿 스크린에서 "내 뷰의 오른쪽 끝"은 카메라가 몇 개든 항상 viewport x = 1
+
+---
+
+Screen은 출력 장치의 좌표계, Viewport는 카메라의 좌표계
+
+---
+
+pixelWidth / pixelHeight는 크기만 줍니다
+
+pixelRect는 (x, y, width, height),
+즉 어디에 그려지는지까지 담습니다
+
+---
+
+pixelWidth / pixelHeight는 문서에 명시된 Read Only
+설정은 pixelRect로 합니다.
+
+---
+
+cam.rect = new Rect(0, 0, 0.5f, 1f);
+// 창을 어떻게 늘려도 항상 왼쪽 절반. 비율이 고정.
+
+cam.pixelRect = new Rect(0, 0, 400, 200);
+// 창을 늘려도 400×200 그대로. 절대 픽셀이 고정.
+
+스플릿 스크린은 rect, 
+고정 크기 프리뷰 창은 pixelRect
+
+---
+
+Dynamic resolution scaling
+
+GPU가 버거워질 때 실시간으로
+렌더 타깃 해상도만 낮추고
+최종 출력 직전에 업스케일해서 
+프레임레이트를 지키는 기능
+
+---
+
+렌더 타깃은 항상 풀 해상도로 잡아두고
+축소할 때는 그 텍스처의 왼쪽 아래 일부분만 사용
+
+---
+
+카메라에서 Allow Dynamic Resolution 체크
+RenderTexture는 DynamicallyScalable로 
+
+Player Settings에서 Enable Frame Timing Stats 체크
+FrameTimingManager로 CPU/GPU 프레임 타임을 읽어 판단
+ScalableBufferManager.ResizeBuffers(widthScale, heightScale) 호출 (0.0 초과 ~ 1.0 이하)
+
+---
+
+ScalableBufferManager.ResizeBuffers(widthScale, heightScale) 호출 (0.0 초과 ~ 1.0 이하)
+
+언제 낮출지는 엔진이 정해주지 않고 직접 알고리즘을 짜야 합니다
+GPU 프레임 타임이 목표치를 넘으면 스케일을 조금씩 내리고, 여유가 생기면 다시 올리는 식
+
+---
+
+플랫폼 제약
+
+iOS/macOS/tvOS는 Metal, 
+Android는 Vulkan, 
+Windows는 DirectX 12에서만 동작합니다
+
+Vulkan과 DX12는 균등 스케일만 되므로 widthScale만 유효
+
+---
+
+업스케일 방식은 파이프라인마다 다릅니다
+
+Built-in은 GPU 기본 필터링, 
+URP는 bilinear / nearest-neighbor / FSR1 중 선택
+HDRP는 별도 경로로 TAAU·FSR2·DLSS까지 갑니다
+
+---
+
+여기서 scaledPixelWidth가 나옵니다
+
+카메라가 화면에서 차지하는 크기는 그대로(pixelWidth)인데 
+
+실제로 셰이딩되는 픽셀 수는 줄어든 상태(scaledPixelWidth)
+
+후처리 커널 크기, 렌더 타깃 오프셋, 화면 공간 계산은 scaled 쪽을 봐야 하고, 
+UI 배치나 입력 좌표는 그대로 pixel 쪽을 봅니다
+
+---
+
+ScreenPointToRay
+
+화면의 한 점에서 씬 안으로 뻗는 광선을 만들어 줍니다
+마우스 피킹의 표준 도구
+
+화면의 한 점에 대응하는 월드 점은 하나가 아닙니다
+카메라에서 그 픽셀을 지나 무한히 뻗는 직선 전체가 전부 그 픽셀로 투영됩니다
+
+ScreenToWorldPoint는 z(거리)를 직접 찍어줘야 그 직선 위의 한 점을 골라주는 함수입니다
+그런데 "마우스 아래 어떤 오브젝트가 있냐"를 물을 때는 거리를 모르는 게 문제의 본질 입니다.
+
+---
+
+ScreenPointToRay는 점 대신 직선 자체를 돌려주고, 
+거리는 물리 시스템이 찾아줍니다
+
+var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+Physics.Raycast(ray, out RaycastHit hit, 100f)
+
+---
+
+반환되는 Ray는 월드 공간
+origin은 근평면 위의 점
+direction은 정규화
+입력의 z 성분은 무시됩니다
+
+Orthographic 카메라에서는 모든 광선이 평행하고 origin만 달라집니다
+그래서 perspective/ortho를 오가는 코드도 그대로 동작합니다
+
+---
+
+2D는 Physics2D.GetRayIntersection(ray)를 쓰거나, 
+아예 ScreenToWorldPoint 후 Physics2D.OverlapPoint가 더 간단합니다.
+
+---
+
+UI는 Physics가 아니라 EventSystem과 GraphicRaycaster가 처리하므로 
+이 광선에 걸리지 않습니다
+
+UI 위를 클릭한 건지 알고 싶으면 
+EventSystem.current.IsPointerOverGameObject()로 먼저 걸러야 합니다
+
+---
+
+TransformPoint      이동 O  회전 O  스케일 O
+TransformVector     이동 X  회전 O  스케일 O
+TransformDirection  이동 X  회전 O  스케일 X
+
+비균등 스케일(non-uniform scale)이 걸리면 
+TransformDirection과 TransformVector가 길이뿐 아니라 
+방향까지 달라집니다
+
+---
+
+TransformDirection만 길이를 보존합니다
+The returned vector has the same length as direction
+
+---
+
+로컬 기준으로 정의된 지점의 월드 위치를 구합니다
+var muzzle = weapon.TransformPoint(0f, 0f, 1f);
+
+---
+
+var move = transform.TransformDirection(Vector3.forward) * speed;
+
+부모에 스케일이 걸려 있어도 방향이 찌그러지지 않는 게 포인트입니다
+카메라 기준 입력 벡터를 월드 이동 방향으로 바꿀 때
+
+---
+
+TransformVector — 크기가 의미 있는 변위
+방향이면서 길이도 살아 있어야 하고, 
+스케일의 영향은 받아야 하는 경우
+
+// 스케일 2배로 커진 오브젝트의 "로컬 1유닛 간격"은 월드에서 2유닛
+var offset = transform.TransformVector(Vector3.right);
+
+콜라이더 크기, 본 오프셋, 로컬 기준 상대 변위 계산
+
+---
+
+InverseTransformPoint
+월드의 점을 특정 오브젝트 기준으로 되돌립니다
+세 축 결과를 한 번에 얻어서 
+앞뒤·좌우·위아래를 동시에 판정할 수 있는 게 Dot 곱보다 나은 점입니다
+
+var rel = transform.InverseTransformPoint(enemy.position);
+if (rel.z > 0) { /* 내 앞 */ }
+if (rel.x > 0) { /* 내 오른쪽 */ }
+
+---
+
+Sprite.bounds가 재는 좌표계는 SpriteRenderer의 로컬 공간
+그 공간의 원점이 곧 피벗
+
+스프라이트 메시가 만들어질 때
+피벗이 (0, 0)에 오도록 정점 전체가 평행이동되기 때문
+
+피벗을 바꾼다는 건 그림을 옮기는 게 아니라 원점을 옮기는 것입니다
+
+---
+
+spriteRenderer.bounds
+월드 바운즈로 위치·회전·스케일이 이미 곱해져 있고
+
+spriteRenderer.sprite.bounds
+스프라이트 에셋의 로컬 바운즈입니다
+
+---
+
+Screen space 원점이 두 종류
+
+1920×1080 창에서 마우스를 좌상단 구석에 놓고 두 API에 물어보면:
+
+Input.mousePosition → (0, 1080)
+Event.current.mousePosition → (0, 0)
+
+Input.mousePosition — "The bottom-left of the screen or window is at (0, 0)
+The top-right is at (Screen.width, Screen.height)."
+
+Event.mousePosition — "The top-left of the window returns (0, 0)
+The bottom-right returns (Screen.width, Screen.height)."
+
+---
+
+좌하단 원점, Y가 위로 (수학 좌표계)
+
+Camera.rect
+Input.mousePosition
+Screen.safeArea, Screen.cutouts
+Texture2D.ReadPixels
+Camera.WorldToScreenPoint
+
+---
+
+좌상단 원점, Y가 아래로
+
+IMGUI 
+UI Toolkit
+
+---
+
+변환은 그냥 뒤집기
+float flippedY = Screen.height - y;
+
+---
+
+렌더링 계열은 OpenGL 관례를 물려받았습니다
+OpenGL 프레임버퍼는 원점이 좌하단이고 Y가 위로 증가
+Camera 계열이 전부 이쪽
+
+GUI 계열은 데스크톱 윈도우 시스템 관례
+텍스트는 위에서 아래로 흐르고, 스캔라인도 위에서 아래
+Win32·Cocoa·HTML DOM·CSS가 전부 좌상단
+
+IMGUI
+UI Toolkit
+
+---
+
+지뢰
+
+Screen.safeArea를 UI Toolkit에 적용할 때
+OnGUI 안에서 Input.mousePosition을 쓸 때
+커스텀 에디터에서 마우스 좌표를 씬 뷰 레이캐스트에 넘길 때.
+
+---
+
+GUIUtility.ScreenToGUIPoint의 "Screen"은 
+Camera 계열의 Screen space가 아니라 
+GUI 문맥의 창 좌표입니다
+
+---
+
+Screen.width              → 플레이어 창의 픽셀 폭
+Screen.currentResolution  → 디스플레이(모니터)에 설정된 해상도
+
+하나는 "내가 그리는 캔버스", 하나는 "그 캔버스가 놓인 책상"입니다
+
+---
+
+윈도우 모드
+2560×1440 모니터에서 1280×720 창을 띄우면 
+Screen.width는 1280, currentResolution.width는 2560
+
+에디터
+Screen.width/height는 Game 뷰 크기
+Free Aspect라면 그냥 패널을 늘린 만큼 값이 바뀝니다
+currentResolution은 여전히 데스크톱 모니터 해상도
+
+모바일
+currentResolution은 디스플레이 네이티브지만, 
+Screen.width에는 Resolution Scaling이나 안전영역 처리가 반영된 
+실제 렌더 크기가 나옵니다
+
+---
+
+Resolution 구조체에는 width, height 말고 refreshRateRatio가 들어 있습니다. 
+주사율은 창의 속성이 아니라 디스플레이의 속성입니다. 
+이것만 봐도 이 구조체가 창이 아니라 
+모니터를 기술하려고 만들어진 물건임이 드러납니다.
