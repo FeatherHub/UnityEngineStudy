@@ -1,0 +1,760 @@
+PPU
+
+이미지 도메인(픽셀)과 시뮬레이션 도메인(유닛) 사이의 교환 비율
+PPU가 바꾸는 건, 스프라이트가 월드에서 몇 유닛을 차지하느냐
+
+---
+
+Rigidbody2D의 중력
+중력은 유닛/s² 단위
+
+---
+
+BoxCollider2D는 스프라이트 bounds에 맞춰 자동 생성되고
+PolygonCollider2D는 알파 외곽선에서 정점을 뽑는데
+
+그 좌표가 PPU로 나뉘어 나옵니다
+
+PPU를 바꾸면 콜라이더 크기가 달라집니다
+
+---
+
+Canvas.referencePixelsPerUnit이 UI 도메인의 PPU
+
+스프라이트 PPU와 이 값이 같아야 픽셀 밀도가 1:1이 됩니다
+
+다르면 UI Image가 자동으로 스케일됩니다
+
+9-slice 보더 두께만 따로 조정하고 싶으면 
+Image.pixelsPerUnitMultiplier가 있습니다
+
+---
+
+Grid.cellSize
+
+16×16 타일을 PPU 16으로 임포트하면 셀 크기 1
+
+---
+
+픽셀 아트 정렬
+Pixel Perfect Camera
+
+1텍셀이 화면 픽셀의 정수배로 떨어져야 카메라가 움직일 때 흔들림(shimmer)이 안 생깁니다
+
+---
+
+축에 정렬된, 오브젝트를 완전히 감싸는 박스
+an axis-aligned bounding box, or AABB
+
+center   // 중심
+extents  // 반쪽 크기. "always half of the size"
+size = extents × 2
+min  = center − extents
+max  = center + extents
+
+---
+
+비대칭이 있어야 "먼저 거르기"가 성립합니다
+
+실제로 안 겹치면 AABB도 안 겹칩니다
+AABB는 겹치는데 실제로는 안 겹침
+
+프러스텀 컬링
+Renderer.bounds
+
+물리 broadphase
+Collider.bounds
+
+---
+
+Mesh.bounds           // 로컬. Transform 바뀌어도 불변
+Renderer.localBounds  // 로컬. 오버라이드 가능
+Renderer.bounds       // 월드
+Collider.bounds       // 월드
+
+축 정렬이라 회전시키면 박스가 커집니다
+45도 돌린 긴 막대의 월드 AABB는 원래보다 훨씬 큽니다
+
+---
+
+SkinnedMeshRenderer는 애니메이션 전체를 감싸도록 
+로컬 바운즈가 미리 계산되어 
+메시보다 한참 클 수 있습니다
+
+---
+
+RectTransform 앵커 — 진짜 앵커
+
+anchorMin  // 이 사각형의 좌하단이 부모 안 어디에 붙는지 (0~1)
+anchorMax  // 우상단이 어디에 붙는지 (0~1)
+
+부모 크기가 바뀔 때 자식이 어떻게 따라갈 것인가
+해상도가 제각각인 세상에서 필수
+
+---
+
+점 앵커 (anchorMin == anchorMax) — 부모의 한 점에 못박습니다.
+
+부모가 커져도 우상단에서 항상 같은 거리
+sizeDelta 가 곧 실제 크기
+
+---
+
+늘어난 앵커 (anchorMin ≠ anchorMax) — 부모 영역에 비례해 늘어납니다.
+
+부모 전체를 채우며 함께 늘어남
+sizeDelta 는 크기가 아니라 "앵커 사각형 대비 여백"
+
+---
+
+씬 오브젝트에서 앵커 비슷한 걸 원하면 
+ViewportToWorldPoint로 화면 모서리를 잡아 직접 계산하거나, 
+World Space Canvas를 얹습니다
+
+---
+
+UI Toolkit에는 앵커가 없습니다
+
+CSS 모델을 가져왔으므로 position: absolute + left/right/top/bottom
+
+그리고 Flexbox의 flex-grow가 같은 문제를 다르게 풉니다
+left와 right를 동시에 지정하면 uGUI의 늘어난 앵커와 사실상 같은 효과가 납니다
+
+---
+
+Texture (Sprite import mode)
+
+TextureImporter.spritePixelsPerUnit
+텍스처 단위
+
+스프라이트 시트를 슬라이스해서 서브 스프라이트를 100개 만들어도 
+PPU는 시트 전체에 하나
+
+---
+
+런타임 생성 Sprite — Sprite.Create(texture, rect, pivot, pixelsPerUnit, ...)
+
+
+---
+
+Project Settings > Editor > Default Sprite Pixels Per Unit
+새로 임포트되는 텍스처의 초기값
+프로젝트 상수
+
+---
+
+Canvas.referencePixelsPerUnit
+uGUI 쪽
+컴포넌트
+
+---
+
+PanelSettings.referenceSpritePixelsPerUnit
+UI Toolkit
+
+---
+
+Image.pixelsPerUnitMultiplier
+9-slice 보더 두께만 따로 배율 조
+
+---
+
+TextMesh Pro는 PPU 체계를 아예 안 쓰고 
+폰트 아틀라스의 Sampling Point Size로 갑니다.
+
+---
+
+Mesh는 컴포넌트가 아니라 에셋입니다. 
+정점 배열, 인덱스 배열, UV 배열을 담은 데이터 덩어리일 뿐이고, 
+
+Transform이라는 걸 알지도 못합니다
+GameObject에 붙어 있는 건 MeshFilter이고,
+MeshFilter가 그 에셋을 참조할 뿐입니다
+
+정점 배열은 그대로 있고, 스케일은 렌더링 시점에 model matrix로 곱해집니다
+실제 곱셈은 GPU의 버텍스 셰이더에서 일어납니다
+정점 데이터는 처음부터 끝까지 불변입니다
+
+Mesh.vertices        // 절대 안 바뀜
+Mesh.bounds          // 그 정점들의 AABB → 절대 안 바뀜
+Renderer.bounds      // localToWorldMatrix 곱한 뒤 다시 축 정렬 → 바뀜
+
+공유되기 때문에 불변이어야 한다
+
+---
+
+var localSize = mesh.bounds.size;                    // 원본 크기
+var worldSize = renderer.bounds.size;                // 실제 화면상 크기
+var manualWorld = Vector3.Scale(mesh.bounds.size, transform.lossyScale);
+
+---
+
+Rigidbody2D.useAutoMass
+
+the mass is automatically calculated from all attached Collider2D 
+as a product of their Collider2D.density and area
+
+여기서 area는 월드 유닛²
+
+PPU를 100에서 32로 바꾸면 콜라이더 면적이 (100/32)² ≈ 9.8배가 되고, 질량도 9.8배가 됩니다
+
+---
+
+뷰포트                  WorldToViewportPoint 의 도착점
+     │  Camera.pixelRect     ← Camera.rect × 백버퍼 크기
+카메라 픽셀             Camera.pixelWidth / pixelHeight
+     │  dynamic resolution 배율 + 업스케일
+스왑체인 픽셀           Camera.scaledPixelWidth, Screen.width / height
+     │  OS 창 합성
+디스플레이 물리 픽셀     Screen.currentResolution, Display.systemWidth
+
+---
+
+①→② 의 PPU, ④→⑤ 의 projection, ⑩→⑪ 의 dpi
+나머지 단계는 전부 행렬 곱이나 리맵일 뿐 단위를 바꾸지 않습니다
+
+즉 이 파이프라인에서 "종류가 다른 양"으로 넘어가는 관문이 세 개
+
+텍셀 → 유닛 → 픽셀 → 길이
+
+---
+
+Screen Space - Overlay Canvas는 ②~⑦을 통째로 건너뛰고 ⑧에 직접 꽂힙니다
+카메라가 없어도 그려지는 이유
+
+Screen Space - Camera는 ③에 끼어들어 정상 경로를 탑니다
+그래서 원근과 포스트프로세싱을 먹습니다
+
+---
+---
+---
+
+foo.png          디스크의 파일. PNG 컨테이너 + DEFLATE 압축
+   │ TextureImporter  (에디터에서만 실행, 설정은 foo.png.meta 에 저장)
+   ↓
+Texture2D        엔진 오브젝트. GPU 포맷(BC7/ASTC/ETC2)으로 재압축 + 밉맵
+   │ Sprite Mode: Single / Multiple / Polygon
+   ↓
+Sprite           Texture2D 를 참조 + rect + pivot + PPU + border + mesh
+   │
+   ↓
+SpriteRenderer   씬에 그리는 컴포넌트
+
+---
+
+PNG가 런타임에 존재하지 않는다
+빌드 결과물에 .png 파일이 들어가지 않습니다
+임포트 시점에 전혀 다른 포맷으로 트랜스코딩되고
+원본은 에디터에만 남습니다
+
+---
+
+GPU는 PNG를 읽을 수 없기 때문입니다
+PNG는 DEFLATE로 스트림 압축되어 있어서 
+"이 좌표의 픽셀 하나만 꺼내줘"가 불가능
+앞에서부터 전부 풀어야 합니다
+
+텍스처 샘플링은 임의 좌표를 초당 수십억 번 랜덤 액세스
+
+---
+
+그래서 BC7/ASTC/ETC2 같은 블록 압축을 씁니다
+
+4×4 텍셀 블록마다 독립적으로 압축되어 있어서 
+필요한 블록만 바로 꺼내 풀 수 있고,
+압축된 상태 그대로 VRAM에 상주합니다
+
+GPUs do not use these formats at runtime
+instead, they use different, specialized formats 
+that are optimized for memory usage and speed of sampling operations
+
+---
+
+소스 에셋 — .png, .jpg, .psd, .tga 등. 아티스트가 편집하는 원본
+PSD와 TIFF는 임포트 시 자동으로 flatten됩니다
+
+---
+
+TextureImporter
+변환 규칙. 설정은 .meta에 저장
+Texture Type을 Sprite (2D and UI) 로 두어야 Sprite 서브에셋이 생성됩니다
+Default로 두면 Texture2D만 있고 Sprite는 없습니다
+
+---
+
+Texture2D
+GPU에 올라가는 엔진 오브젝트
+Texture는 추상 베이스 클래스이고 
+Texture2D, Texture3D, Cubemap, Texture2DArray, RenderTexture가 파생
+
+---
+
+Sprite
+별도의 에셋이고, Texture2D를 참조만 합니다
+
+The Sprite class primarily identifies the section of the image 
+that should be used for a specific Sprite
+
+"이 텍스처의 어느 사각형을, 어느 피벗으로, 어느 PPU로 볼 것인가"라는 뷰
+
+---
+
+lossyScale
+
+부모들의 스케일과 회전을 전부 누적해서 계산해낸 값
+표현 불가능한 것을 억지로 세 개의 숫자로 뭉갠 근사치이고, shear 성분이 버려집니다
+
+Thus scale can not be represented correctly in a 3 component vector but only a 3x3 matrix
+lossyScale is a convenience property that attempts to match the actual world scale as much as it can
+
+If your objects are not skewed the value will be completely correct
+계층에 비균등 스케일이 없거나 회전이 없으면 정확합니다
+
+---
+
+이미지 파일의 "1920×1080"은 색 샘플의 개수입니다
+"색 값이 1920 × 1080 들어 있다"
+배열의 길이
+
+---
+
+이미지 파일에는 자기가 얼마나 커야 하는지에 대한 정보가 없습니다
+벽 한 면을 채울지 우표만 할지는 파일 안에 없고, 쓰는 쪽이 정합니다
+
+---
+
+이미지 픽셀(텍셀) — 개수
+무차원이고, 단위가 아니라 카운트
+
+"이 배열의 원소가 1920개"에서 1920에 붙은 이름
+
+---
+
+디스플레이 픽셀
+
+물리적 실체
+모니터에 박힌 발광 소자 하나
+실제 크기가 있습니다(24인치 1080p면 대략 0.277mm)
+
+---
+
+64 텍셀 ÷ PPU 100         = 0.64 월드 유닛
+orthographicSize 5        → 화면 세로 = 10 유닛
+Screen.height 1080        → 1 유닛 = 108 화면 픽셀
+0.64 × 108                = 69 화면 픽셀
+
+---
+---
+---
+
+PSD는 레이어 구조를 가진 편집용 문서
+Flatten은 이것들을 블렌드 모드와 불투명도를 적용해가며 순서대로 합성해서 
+하나의 평평한 픽셀 배열로 굽는 것
+
+디스크의 .psd는 레이어가 그대로 살아 있습니다. 
+평평해지는 건 임포트 결과물인 Texture2D뿐
+아티스트는 계속 레이어를 편집하고, 저장하면 Unity가 감지해서 다시 굽습니다
+
+---
+
+에셋 파이프라인의 일반 원리
+
+소스는 편집하기 좋은 형태
+임포트 결과는 실행하기 좋은 형태
+
+---
+
+레이어를 살리고 싶다면
+
+2D PSD Importer 패키지
+
+레이어마다 별개 Sprite를 뽑고, 원래 위치 관계를 유지한 프리팹까지 생성
+캐릭터 본 리깅에 쓰는 워크플로
+
+---
+
+1 월드 유닛 = Screen.height ÷ (orthographicSize × 2)   화면 픽셀
+orthographicSize 5, Screen.height 1080, dpi 96이면
+1 유닛 = 1080 ÷ 10 = 108 픽셀
+
+카메라를 줌아웃해서 orthographicSize를 10으로 바꾸면 같은 오브젝트가 14.3mm가 됩니다
+오브젝트는 아무것도 안 변했는데 물리적 길이가 절반이 됩니다.
+
+---
+
+프레임버퍼의 픽셀은 숫자 묶음입니다
+크기가 없습니다
+1920×1080 프레임버퍼는 "색 값이 207만 개 있다"는 뜻이지 몇 인치인지가 아닙니다
+이미지 파일과 완전히 같은 성질
+
+---
+
+모니터의 픽셀은 물리적 소자입니다
+크기가 있습니다
+
+둘을 잇는 건 디스플레이 컨트롤러의 스캔아웃
+
+프레임버퍼 배열의 (x, y)번째 값을 패널의 (x, y)번째 소자로 보냅니다
+
+이 1:1 대응이 성립할 때만 "프레임버퍼 픽셀 = 화면 픽셀"
+
+---
+
+성립 안 하는 경우
+
+해상도 불일치
+1280×720 프레임버퍼를 1920×1080 패널에 띄우면 스케일러가 늘립니다
+프레임버퍼 1픽셀이 패널 2.25픽셀이 됩니다
+
+OS 배율
+Retina나 Windows 150% 스케일링
+논리 좌표 1이 물리 픽셀 1.5~2개
+
+---
+
+밀도
+무차원 개수를 길이에 붙이는 환율
+
+단위 길이(또는 면적, 부피)당 개수
+
+픽셀 개수 [무차원]  ÷  픽셀 밀도 [픽셀/인치]  =  인치
+
+---
+
+같은 것을 두 번 재는 것
+하나의 대상을 두 가지 단위로 재고, 그 둘을 등호로 묶는 것
+
+대상은 "카메라에 보이는 세로 구간"
+이걸 두 번 잽니다
+
+픽셀로 재면    →  Screen.height 픽셀
+유닛으로 재면  →  orthographicSize × 2 유닛
+
+같은 구간이므로 등호가 성립합니다
+Screen.height 픽셀  =  (orthographicSize × 2) 유닛
+
+---
+
+Screen.height ÷ (orthographicSize × 2) 픽셀  =  1 유닛
+
+"3피트 = 1야드니까 1야드는 3피트"
+
+---
+
+사각형들의 계층
+
+┌─ ① 디스플레이 패널 ───────────────────────┐
+│                                            │
+│   ┌─ ② OS 윈도우 (타이틀바 포함) ─────┐   │
+│   │ ┌─ ③ 클라이언트 영역 / 백버퍼 ─┐  │   │
+│   │ │  ┌── ④ 카메라 뷰포트─┐       │  │   │
+│   │ │  │   좌표계가         │       │  │   │
+│   │ │  │   이 안에 삶       │       │  │   │
+│   │ │  └────────────────────┘       │  │   │
+│   │ └───────────────────────────────┘  │   │
+│   └────────────────────────────────────┘   │
+└────────────────────────────────────────────┘
+
+---
+
+디스플레이 패널
+물리적 모니터
+
+Screen.currentResolution      // 메인 디스플레이의 현재 해상도
+Display.systemWidth/Height    // "native display resolution"
+Display.displays[]            // 멀티 모니터
+Screen.dpi                    // 여기서만 물리적 길이가 나옴
+
+---
+
+OS 윈도우
+타이틀바와 테두리를 포함한 창 전체
+
+Screen.mainWindowPosition
+Screen.mainWindowDisplayInfo   // 이 창이 어느 모니터에 있나
+
+---
+
+클라이언트 영역 = 백버퍼 = 드로잉 서피스
+그림이 그려지는 영역
+Screen.width / Screen.height
+the actual width of the Player window
+
+Screen.safeArea               // 이 안에서 노치 등을 뺀 부분
+Display.renderingWidth        있음
+
+---
+
+카메라 뷰포트
+"viewport"
+
+클라이언트 영역 = 백버퍼 = 드로잉 서피스
+안에서 특정 카메라가 그리는 사각형
+
+Camera.targetTexture가 설정되면 기준이 그 RenderTexture가 됩니다. 
+이 경우 화면과 아무 관계가 없어집니다
+
+Camera.rect                   // 정규화 (0~1), 위치+크기, 쓰기 가능
+Camera.pixelRect              // 픽셀, 위치+크기, 쓰기 가능
+Camera.pixelWidth / Height    // 픽셀, 크기만, 읽기 전용
+Camera.scaledPixelWidth       // dynamic resolution 반영
+
+---
+
+viewport
+
+그래픽스 API 전통 — 렌더 타깃 안의 그리기 영역
+웹/UI 전통 — 창의 보이는 영역
+
+---
+
+누가 그 사각형을 소유하는가
+
+하드웨어 제조사가 정함
+OS 가 정함
+플레이어(창 크기)나 SetResolution 이 정함
+Camera.rect 로 정함
+
+---
+
+Screen.dpi는 OS가 주는 값을 그대로 전달하는 얇은 래퍼
+플랫폼마다 다르고, 결정적으로 어느 것도 런타임에 측정된 물리량이 아닙니다
+
+전부 어딘가에 미리 선언된 메타데이터입니다
+선언은 틀릴 수 있고, 실제로 자주 틀립니다
+
+---
+
+Android
+
+this property uses densityDpi which is a logical bucket containing a range of DPI values 
+rather than providing an exact value
+
+DisplayMetrics.densityDpi는 OEM이 빌드 설정에서 고른 값
+실측 DPI가 410이어도 densityDpi는 480으로 보고될 수 있습니다
+
+문서가 제시하는 대안이 xdpi/ydpi 평균
+some Android devices might report incorrect xdpi and ydpi values
+
+더 정확할 수도 있지만 신뢰할 수는 없다
+
+---
+
+iOS
+
+Apple은 물리 DPI를 알려주는 API를 제공하지 않습니다
+UIScreen이 주는 건 포인트 단위 크기와 scale(1x/2x/3x)뿐
+
+scale은 논리 좌표와 하드웨어 픽셀의 비율이지 인치와는 무관
+
+실질적으로는 기기 모델 식별자 → 알려진 DPI 테이블 조회에 의존하게 됩니다
+기기 종류가 제한적이라 이 방식이 통하는 것
+
+---
+
+데스크톱
+
+모니터의 EDID 블록
+
+모니터가 케이블로 자기 정보를 보고할 때 
+물리적 화면 크기를 cm 또는 mm 단위로 넣게 되어 있고, 
+OS가 그걸 읽어 해상도와 나눠 DPI를 냅니다
+
+문제는 이 필드가 비어 있거나 반올림되어 있거나 그냥 틀린 모니터가 흔하다는 것입니다
+The property returns 0 if the current DPI cannot be determined
+
+---
+
+Windows의 "디스플레이 배율 125%"나 macOS의 Retina 스케일링은 물리적 DPI가 아닙니다
+논리 좌표를 물리 픽셀로 늘리는 배율
+
+---
+
+Screen.dpi는 모바일에서만 조건부로 신뢰하고, 
+데스크톱에서는 0이 나올 수 있다고 가정하고 코드를 짜야 합니다
+
+float dpi = Screen.dpi;
+if (dpi <= 0f) dpi = 96f;   // 폴백
+
+---
+
+Screen.currentResolution        // static. 메인 디스플레이 하나뿐
+The current screen resolution
+
+Display.displays[i].systemWidth // 인스턴스. 0~7 각각
+Horizontal native display resolution
+
+전자는 지금 설정된 모드, 후자는 패널 고유 해상도입니다
+4K 모니터를 1080p 모드로 돌려놓으면 원칙적으로 갈라져야 합니다
+
+다만 LCD/OLED는 네이티브가 아닌 해상도에서 화질이 나빠지므로 대부분 네이티브로 씁니다
+그래서 실무에서는 대체로 같은 값
+
+---
+
+Screen.width                        메인 플레이어 창의 백버퍼 폭
+Display.displays[i].renderingWidth  i번 디스플레이가 지금 렌더링 중인 해상도
+
+렌더 해상도 ≠ 디스플레이 해상도
+
+Display가 systemWidth와 renderingWidth를 따로 가진 게 핵심
+
+---
+
+Display.SetRenderingResolution(w, h)   // Android, iOS 전용
+Display.SetParams(...)                  // Windows 전용
+
+dynamic resolution은 렌더 타깃 내부를 스케일하고, 
+이건 렌더 타깃 자체의 크기를 바꿉니다
+
+---
+
+Display는 렌더 타깃을 직접 노출합니다
+
+Display.main.colorBuffer
+Display.main.depthBuffer
+
+Display.displays[1].colorBuffer
+Display.displays[1].depthBuffer
+
+---
+
+논리 좌표와 물리 픽셀
+
+물리 픽셀은 실체가 있습니다
+디스플레이 패널에 물리적으로 박혀 있는 발광 소자
+실제로는 R/G/B 서브픽셀 묶음
+
+4K 모니터에는 3840 × 2160개
+
+---
+
+논리 픽셀은 물건이 아니라 약속된 눈금
+UI를 그릴 때 쓰는 좌표계의 한 칸
+대응하는 물리적 실체가 존재하지 않습니다
+
+화면 밀도가 제각각인 세상에서 
+앱이 "버튼을 100픽셀로"라고 하드코딩하면, 
+밀도가 두 배인 화면에서 버튼이 절반 크기로 쪼그라듭니다. 
+
+앱을 고치지 않고 이 문제를 풀려면 
+앱이 쓰는 좌표계와 하드웨어 좌표계를 분리하는 수밖에 없습니다
+
+---
+
+그래서 OS가 중간 좌표계를 하나 끼워 넣었습니다
+앱은 논리 좌표로 그리고
+컴포지터가 배율을 곱해 
+물리 픽셀로 옮깁니다
+
+---
+
+물리 픽셀 = 논리 좌표 × 배율
+
+Windows 125%면 논리 1 = 물리 1.25
+macOS Retina 2x면 논리 1 = 물리 2입니다
+
+---
+
+논리 픽셀의 "크기"는 목표값
+
+Windows       96 DPI 가 100% 기준
+macOS point   1/72 인치 (활자 포인트에서 유래)
+Android dp    1/160 인치 (mdpi 기준)
+CSS px        1/96 인치 
+
+---
+
+CSS 사양은 참조 픽셀을 길이가 아니라 시야각으로 정의합니다
+팔 길이(약 28인치) 거리에서 96 DPI 화면의 픽셀 하나가 차지하는 각도
+원래 의도가 "물리적 크기"가 아니라 "사용자 눈에 이만큼으로 보였으면 좋겠다"
+
+기준값이 72, 96, 160으로 제각각
+
+---
+
+Unity 플레이어는 DPI-aware로 동작해서, 
+
+Screen.width는 논리 좌표가 아니라 
+실제 백버퍼의 물리 픽셀 수입니다. 
+
+OS의 논리 좌표 층을 건너뛰고 하드웨어 해상도로 직접 렌더합니다
+
+---
+
+텍셀 수         무차원 — 개수
+월드 유닛       무차원 — 가상의 눈금
+프레임버퍼 픽셀 무차원 — 개수
+물리 픽셀       무차원 — 개수
+논리 픽셀       무차원 — 약속된 눈금
+
+---
+
+단위는 "개"로 같습니다. 
+다른 건 어느 배열을 세느냐입니다
+
+Sprite.rect.width            텍스처 배열의 열 개수
+Camera.scaledPixelWidth      실제로 셰이딩되는 배열의 열 개수
+Camera.pixelWidth            카메라 뷰포트 배열의 열 개수
+Screen.width                 메인 창 백버퍼 배열의 열 개수
+Display.renderingWidth       그 디스플레이 렌더 타깃 배열의 열 개수
+Display.systemWidth          패널 소자 배열의 열 개수
+Screen.currentResolution.w   패널이 현재 모드에서 쓰는 열 개수
+
+---
+
+전부 "픽셀"이라 불리지만 
+서로 다른 배열의 인덱스 공간
+
+---
+
+배율 — 개수를 개수로
+
+Camera.rect               프레임버퍼 개수 → 뷰포트 개수
+dynamic resolution 배율   뷰포트 개수 → 셰이딩 개수
+OS 디스플레이 배율        논리 개수 → 물리 개수
+디스플레이 스케일러       프레임버퍼 개수 → 패널 개수
+
+---
+
+(a) 버퍼/패널의 픽셀 개수       2560, 1440 같은 정수
+(b) OS 배율 설정                100%, 125%, 2x
+(c) 패널의 물리적 크기          "이 화면은 가로 59.8cm"
+
+"못 믿는다"고 한 건 (c)
+"Unity가 안다"고 한 건 (a)
+"DPI-aware"라는 말이 실제로 가리키는 건 (b)
+
+---
+
+시스템이 반드시 알아야 작동하는 정보는 정확하고, 
+몰라도 작동하는 정보는 부정확합니다.
+
+(a)는 없으면 아무것도 안 됩니다
+프레임버퍼를 할당하려면 몇 픽셀인지 알아야 합니다
+메모리 크기 계산에 직접 들어가는 정수입니다
+
+---
+
+DPI-aware
+이 프로세스는 OS의 자동 비트맵 확대를 거부하고, 배율을 직접 처리하겠다
+
+DPI-aware가 아닌 프로세스에게 Windows는 거짓말을 합니다. 
+2560×1440 화면에 125% 배율이면 
+앱에게 "너 창은 2048×1152야"라고 알려주고, 
+앱이 그 크기로 그린 결과를 
+비트맵 확대해서 화면에 올립니다. 
+
+옛날 앱이 고해상도 화면에서 뿌옇게 보이는 게 이것입니다.
+
+---
+
+DPI-aware인 프로세스에게는 거짓말을 안 합니다
+
+클라이언트 영역의 실제 물리 픽셀 수를 그대로 알려주고
+"UI 크기 조절은 네가 알아서 해라"가 됩니다
+
+---
+
+그러니 정확한 이름은 "scale-aware" 또는 "OS 확대 거부"에 가깝습니다. 
+물리적 측정과는 아무 상관이 없습니다
