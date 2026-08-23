@@ -1,0 +1,391 @@
+artifact
+import 결과물
+
+Artifacts have a serializable C# class representation that inherits from UnityEngine.Object
+
+---
+
+main asset + sub-asset 구조
+
+FBX 하나 
+여러 UnityEngine.Object
+
+---
+
+파일 층위 (source asset)
+
+직렬화된 형태는 Library 의 artifact 쪽
+
+---
+
+반대로 .prefab .unity .asset .mat 는 소스 파일이 이미 YAML 직렬화 형태라 
+artifact 와 거의 같습니다
+
+---
+
+씬도 .unity 라는 에셋
+
+로딩 경로
+
+기본 경로 — Scene List (Build Profiles) 에 등록된 씬만 빌드에 포함되고 
+SceneManager.LoadSceneAsync(name/index) 로 로드합니다
+
+씬이 직접 참조하는 에셋은 씬 활성화 전에 전부 메모리에 올라갑니다
+
+---
+
+Addressables 경로
+
+AssetBundle 위에 얹힌 계층
+씬을 Addressable 로 표시하면 씬 번들로 빌드됩니다
+
+---
+
+Addressables.LoadSceneAsync
+
+key (address/label) → catalog 조회 → IResourceLocation
+dependency operation — 필요한 AssetBundle 다운로드 및 로드
+SceneProvider::InternalLoad 가 결국 SceneManager.LoadSceneAsync(path, loadSceneParameters) 를 호출
+
+---
+---
+---
+
+순수 [Serializable] C# class/struct
+
+UnityEngine.Object 를 상속하지 않는 평범한 C# 타입에 [Serializable] 을 붙인 것
+
+핵심 성질은 by value 직렬화
+embeds the entire data of the object directly into the serialized data of the object that holds the reference
+
+---
+
+독립 파일로 존재할 수 없고 참조 대상이 될 수 없습니다
+리스트에 같은 인스턴스를 두 번 넣으면 사본 두 개가 저장됩니다
+
+이게 ScriptableObject 가 존재하는 이유
+데이터 덩어리를 "참조 가능한 것"으로 만들려면 UnityEngine.Object 가 되어야 합니다
+
+---
+
+[SerializeReference] 를 붙이면 by reference 로 바뀝니다
+managed reference ID 로 추적되어 다형성·null·인스턴스 공유가 가능해집니다
+UnityEngine.Object 파생 타입에는 쓸 수 없습니다
+
+---
+
+PPtr
+
+Persistent Pointer
+Internally, Unity represents these references with a PPtr<T> type
+
+public Material Mat; 라고 쓰면 메모리에서는 C# 참조지만
+디스크로 나갈 때 그 필드의 표현이 PPtr<Material>
+
+UnityEngine.Object 를 가리키는 모든 직렬화 필드가 그렇습니다
+
+---
+
+GUID 는 128-bit 파일 식별자(.meta 에 저장), 
+fileID 는 그 파일 안에서 오브젝트를 식별하는 64-bit ID
+
+빌드된 serialized file 에서는 GUID 가 빠지고 
+그 파일의 external reference 테이블 인덱스 + local ID 로 치환됩니다
+
+---
+
+When Unity loads these objects into memory at runtime, 
+it resolves the GUID and fileID pair to an InstanceID
+
+---
+
+이 매핑을 담당하는 내부 구조가 PersistentManager 와 Remapper
+
+C++ Object 가 C# UnityEngine.Object 를 가리키고, 
+C# 쪽은 instance ID 로 되돌아 연결됩니다
+
+---
+
+PPtr 은 디스크 상의 참조, 
+InstanceID 는 메모리 상의 핸들
+
+---
+
+모든 UnityEngine.Object 가 GUID + local file ID 를 가지나?
+
+아니오. persistent object 만 가집니다
+
+GUID 는 파일의 ID 이고 fileID 는 그 파일 안 오브젝트의 ID 입니다
+즉 GUID 는 오브젝트의 ID 가 아니라 "그 오브젝트를 담고 있는 에셋 파일의 ID"입니다
+프리팹 하나 안의 GameObject 20개는 GUID 를 공유하고 fileID 로 구분됩니다
+
+모든 UnityEngine.Object 가 반드시 갖는 것은 InstanceID 뿐입니다
+(Unity 6.4 부터는 Object.GetEntityId 로도 노출)
+
+---
+
+Objects loaded from file will be assigned a positive Instance ID
+Newly created objects will have a negative Instance ID
+and retain that negative value even if the object is later saved to file
+
+---
+
+그래서 런타임 new GameObject() 는
+
+GUID 없음, fileID 없음
+음수 InstanceID 부여
+세션이 끝나면 무효 (문서: "The ID changes between sessions of the player runtime and Editor")
+씬을 저장하거나 프리팹으로 만드는 순간 비로소 fileID 가 생깁니다 — 단 InstanceID 는 음수 그대로 유지됩니다
+
+---
+
+따라서 InstanceID 부호로 persistent 여부를 판단하면 안 됩니다
+EditorUtility.IsPersistent 를 쓰라고 안내합니다
+
+그리고 빌드에는 Asset Database 자체가 없으므로 GUID 라는 개념도 없습니다.
+
+---
+
+Scene List 의 씬은 level0, level1 … 로 나가고,
+씬이 참조하는 에셋은 sharedassets0 등에 모입니다
+
+These files contain assets referenced by a scene reference
+Their numbering corresponds to the scene in the scene build order
+
+---
+
+LoadSceneAsync 의 progress 0 → 0.9 구간이 대부분 이 그래프 로딩이고, 
+0.9 는 로드와 integration 이 끝나고 활성화만 대기하는 상태
+
+---
+
+AssetReference 는 직렬화 상 GUID 문자열이지 PPtr 이 아니므로 
+dependency graph 에 잡히지 않습니다
+
+---
+
+SceneManager
+build list 에 있거나, 로드된 번들이 등록한 scene path 만 해석할 수 있습니다
+
+SceneManagerAPI
+SceneManager 의 C# 동작을 override 하는 확장 포인트
+Only a single implementation can be active at a time
+
+SceneUtility
+build index ↔ scene path 변환
+
+EditorSceneManager
+Editor 전용
+
+---
+
+Addressables / ResourceManager 레이어 — 위 API 를 감싸는 C# wrapper
+
+---
+---
+---
+
+[SerializeReference]
+
+그 참조가 유효한 범위는 같은 serialized file 내부
+파일 경계를 넘는 참조는 PPtr 뿐이고, PPtr 은 UnityEngine.Object 만 가리킬 수
+
+---
+
+SO 만 할 수 있는 일
+
+100개 프리팹이 같은 SO 를 참조하면 메모리에 인스턴스 1개입니다
+같은 데이터를 SerializeReference 로 넣으면 사본 100개입니다
+
+SO 는 Addressable 로 만들거나 번들에 넣거나 지연 로드할 수 있습니다
+SerializeReference 데이터는 소유자와 함께 무조건 로드됩니다
+
+OnEnable/OnValidate
+
+---
+
+SerializeReference 는 한 오브젝트 내부의 다형적 구조
+behavior tree 노드, 조건/액션 리스트, 그래프, 순환 참조
+
+---
+
+어떤 직렬화 시스템도 메모리 포인터를 그대로 저장할 수 없습니다
+포인터는 이번 프로세스의 주소일 뿐이라 다음 실행엔 의미가 없죠
+
+그래서 모든 직렬화가 포인터를 "재구성 가능한 식별자"로 바꿉니다
+
+---
+
+Each instance of a class that derives from UnityEngine.Object 
+is linked to a counterpart native object
+
+실제 데이터(mesh 정점, texture 픽셀, transform 행렬)는 C++ 쪽에 있고
+C# Material 객체는 그 native object 를 가리키는 얇은 wrapper 입니다
+
+---
+
+The C++ Object has a pointer to the associated C# UnityEngine.Object and
+the C# object references back to the associated C++ object via the instance ID
+
+---
+
+디스크    PPtr = (GUID 또는 file index, fileID)
+  ↓ 로드 시 resolve
+메모리    InstanceID → native C++ Object   ← 여기에 실제 데이터
+
+---
+
+C# 코드   Material 래퍼 객체 (native 를 가리키는 핸들)
+
+---
+
+GUID 전역 테이블
+
+SourceAssetDB
+GUID ↔ path 매핑
+
+ArtifactDB
+import 결과와 의존성
+
+중요한 건 DB 는 캐시이고 원본(source of truth)은 .meta 파일이라는 점
+
+---
+
+segment:offset far pointer — GUID 가 segment, fileID 가 offset
+URL 의 (페이지 주소, #fragment) — 페이지를 통째로 받은 뒤 앵커로 그 안의 위치를 찾는 구조
+DB 의 (테이블, primary key) — 둘을 합쳐야 전역 유일
+
+---
+
+빌드에서는 GUID 축이 사라집니다
+
+segment 자리가 "이 serialized file 의 external reference 목록 중 n번째" 라는
+로컬 인덱스로 강등됩니다
+전역 ID 가 필요 없어지는 거죠
+빌드는 내용이 고정되어 있으니까요.
+
+---
+---
+---
+
+Provider
+
+Strategy + Abstract Factory + Registry 가 합쳐진 구조
+
+string ProviderId { get; }                          // Registry 의 key
+bool CanProvide(Type type, IResourceLocation loc);  // Strategy 적용 가능 여부
+void Provide(ProvideHandle handle);                 // Factory 역할
+
+---
+
+똑같은 Addressables.LoadAssetAsync<T>("sword") 코드가
+Editor 에서는 AssetDatabaseProvider, 플레이어에서는 BundledAssetProvider 를 탑니다
+
+---
+
+왜 Factory 가 아니라 Provider 인가
+
+만들기 + 캐싱 + 해제 + "내가 이걸 처리할 수 있나" 판정까지 포함
+.NET 의 provider model (DbProviderFactory, ConfigurationProvider) 이나 
+Java 의 JCA Provider 와 같은 계보
+
+---
+---
+---
+
+ReferenceId
+rid 의 유효 범위가 host object 하나
+그 "한 host" 의 범위
+
+This managed reference Id cannot be used by another object on the same host object
+
+---
+
+MonoBehaviour:                    # host A
+  fieldX: {rid: 7001}
+  fieldY: {rid: 7001}             # ← 같은 host 안 → 인스턴스 1개, 공유 보존
+  references:
+    RefIds:
+    - rid: 7001
+      type: {class: DamageInfo, ns: , asm: Assembly-CSharp}
+      data: { Amount: 10 }       
+
+다른 host 가 이 7001 을 가리킬 문법 자체가 없습니다. 
+옆 host 의 rid 공간은 별개니까요
+
+---
+
+반면 SO 참조는 PPtr = (GUID, fileID) 라 전역 좌표입니다.
+그래서 파일을 넘습니다
+
+---
+
+SerializeReference 만 할 수 있는 일
+
+파일을 만들지 않고 다형성을 유지
+behavior tree 노드 1000개를 에셋 파일 0개로
+
+null 저장
+Value-based serialization can't represent null
+
+순환 그래프
+if you serialize a cyclical graph data structure, 
+you must use SerializeReference 
+to preserve the graph properly 
+and to avoid potential freezes or crashes
+
+---
+
+rid 라는 별도 ID 공간 + 타입 이름 직렬화
+references 블록에 type: {class, ns, asm} 과 data 가 함께 저장됩니다
+
+타입 이름이 직렬화되니 다형성이 보존되고
+ID 가 값과 분리되어 있으니 공유·순환·null 이 표현됩니다
+
+---
+
+참조를 타입 이름으로 붙잡고 있으므로 클래스명·네임스페이스·어셈블리를 바꾸면 끊어집니다
+
+Unity 가 그래서 ManagedReferenceMissingType)과 
+SerializationUtility.HasManagedReferencesWithMissingTypes 를 제공합니다
+
+---
+---
+---
+
+수명 소유권이 GC 에 없다
+
+C# 객체는 GC 가, 
+native 객체는 Destroy/씬 언로드/Resources.UnloadUnusedAssets 가 관리합니다. 
+
+서로를 가리키는 독립된 두 수명 시스템입니다
+
+Destroy 후에도 C# 객체가 GC 될 때까지 살아남는 detached state
+Texture2D 가 GC 눈에는 수십 바이트인데 실제로는 native 에 수십 MB
+
+---
+
+C# 클래스는 accessor 모음일 뿐입니다
+
+---
+
+MonoBehaviour 와 ScriptableObject 는 데이터 자체가 C# 쪽에 있으므로 
+native 객체가 생기는 순간 managed 인스턴스가 함께 생깁니다. 
+
+스크립트 1만 개 붙은 씬은 실제로 managed 객체 1만 개를 만듭니다. 
+
+lazy 인 것은 GameObject, Transform, Renderer, Material, Texture, Mesh 같은 
+순수 엔진 타입입니다
+
+오브젝트 1만 개짜리 씬을 로드해도 C# 객체가 1만 개 생기지 않습니다. 
+C# 코드가 건드릴 때 만들어집니다
+
+---
+
+IL2CPP 산출물도 여전히 GC 아래서 돌고
+write barrier, managed object header 포함 레이아웃
+
+native Unity 객체는 다른 allocator·다른 레이아웃을 씁니다
+
+게다가 icall 경계는 최적화 장벽입니다
+IL2CPP 는 그 너머로 인라인하지 않습니다
