@@ -1,0 +1,979 @@
+발견된 것, 주어진 것, 자연에 있던 것
+
+<=>
+
+만들어진 것이다, 다르게 만들 수도 있었다
+우리가 그렇게 하기로 해서 존재한다
+
+---
+
+hypothetical construct
+construct validity
+
+관측을 설명하려고 우리가 세운 것
+
+그래서 "이게 진짜 있는 거냐"라는 질문이 항상 따라붙습니다
+
+---
+
+점은 세상에 없습니다
+크기도 부분도 없는 것은 물리적으로 존재하지 않아요
+우리가 지어낸 겁니다
+
+---
+
+Landin 이 1964년에 syntactic sugar 라는 말을 만들었고, 
+많은 construct 가 실은 람다의 설탕 옷일 뿐임을 보였습니다
+
+Felleisen 이 1991년에 "언제 X 를 나머지로 매크로 정의할 수 있는가"를 정리로 만들었어요
+진짜 표현력 증가인지 설탕인지를 판정하는 기준
+
+---
+
+primitive
+더 못 쪼갠다는 쪽에 방점
+
+concept
+출처에 대한 약속이 없음. 발견됐을 수도 있고
+
+---
+
+construct
+
+여러 요소를 조합해서 만들어 사용할 수 있게 된 하나의 단위
+
+정신적으로 만들어낸 개념이나 이론적 대상
+
+---
+
+for 는 construct 이면서 파생
+if 는 C 에서 construct 이면서 원시
+
+---
+
+if ( □ ) □ else □
+
+조각들을 받아서 더 큰 조각을 만들어내는 장치
+
+con-struere
+짜맞추는 것
+
+---
+
+Construction Grammar
+
+빈칸 가진 형식
+
+"~할수록 ~하다"
+
+단어로 만들 수 없지만 단어를 받아 문장을 만듭니다
+
+---
+
+C 에서 if 는 문장이고 값을 안 냅니다
+그래서 C 는 삼항 연산자 ?: 를 따로 가져야 했어요
+
+Rust 에서 if 는 표현식입니다
+let x = if c { 1 } else { 2 };
+그래서 Rust 에는 삼항 연산자가 없어요
+
+---
+
+Haskell 에서 if e then a else b 는 
+case e of True -> a; False -> b 로 풀립니다. 
+그러면 case 가 더 원시죠. 
+
+그런데 case 는 뭘로 푸나요. 안 풀립니다. 
+거기가 바닥입니다
+
+---
+
+가장 극단은 람다 대수
+construct 가 셋뿐
+변수, 추상, 적용
+
+나머지 전부 — 참, 거짓, 숫자, 조건 분기, 재귀 — 가 이 셋으로 인코딩됩니다
+
+---
+
+포인터 타입, 포인터 변수, 주소 취득, 역참조라는 
+서로 연결된 언어 메커니즘 전체를 
+하나의 프로그래밍 수단으로 묶어 부르고 있다
+
+---
+
+포인터라는 생각은 여러 표면 형태로 나타난다
+
+int *p;   // pointer declarator
+p = &x;   // address-of expression
+y = *p;   // dereference expression
+
+pointer conversion
+pointer arithmetic
+
+이 셋은 syntax상 서로 다른 종류다
+그런데 모두 같은 언어적 아이디어를 실현한다
+
+어떤 객체의 주소를 값으로 취급하고, 저장하고, 전달하고, 그 주소를 통해 다시 객체에 접근할 수 있다
+이 묶음 전체를 construct라고
+
+---
+
+ALGOL 시대에 언어학 어휘를 통째로 빌려왔습니다
+syntax, semantics, grammar, parse, sentence, token, lexical. construction
+
+PL 이 이 말을 들여올 무렵 생성문법은 이걸 버리고 있었어요
+구문은 원리와 매개변수의 부수효과일 뿐이라는 쪽으로 갔죠
+
+---
+
+BHK 해석에서 A→B 의 증명은 A 의 증명을 B 의 증명으로 바꾸는 construction
+Constructive Mathematics and Computer Programming(1979)
+type constructor, data constructor, term constructor
+
+---
+
+Böhm–Jacopini(1966)가 순차·선택·반복 셋이면 충분하다고 증명했는데, 이건 construct 목록에 대한 정리입니다
+Dijkstra 의 goto 논문(1968)도 어떤 construct 를 허용할 것이냐의 논쟁이고요.
+
+---
+
+designer 대 programmer
+
+construct 는 언어 설계자가 만든 것이고, 프로그래머 입장에서는 주어진 것입니다
+
+앉은 자리에 따라 어원과 반대를 뜻합니다
+만든 사람에게는 만든 것이고, 쓰는 사람에게는 자연입니다
+
+---
+
+재귀적 자료구조가 여기서 나옵니다
+리스트, 트리, 그래프
+
+크기를 미리 모르는 것을 표현할 수 있게 되죠
+
+---
+
+construct
+
+if (□)
+    □
+else
+    □
+
+빈칸에는 또 다른 언어 조각들이 들어온다.
+
+condition → Expression
+then      → Statement
+else      → Statement
+
+---
+
+"the if construct", "looping constructs"
+C 가 제공하는 것 중 하나
+
+---
+
+if — 문법 규칙 하나가 이름 하나
+pointer — 선언자·&·*·변환·산술, 문법 다섯 개가 이름 하나
+예외 처리 — try/catch/throw/스택 되감기, 문법과 런타임이 섞여 이름 하나
+
+하나로 생각할 수 있으면 하나
+
+---
+
+construct 는 아리티를 가진 이름
+
+빈칸 0개 → null, break. 물건처럼 보임
+빈칸 3개 → if (□) □ else □. 틀처럼 보임
+
+---
+
+깊이 — 원시냐 파생이냐. if 는 원시, for 는 파생
+시점 — 설계자에겐 만든 것, 프로그래머에겐 주어진 것
+
+---
+---
+---
+---
+---
+---
+
+source language → translator → object language
+source program  → compiler   → object program
+
+변환 작업이 만들어낸 결과물, 목표 쪽에 놓인 프로그램
+
+---
+
+ob(앞에) + iacere(던지다)
+관계어
+
+obiectum 이 마음 앞에 나타난 것(지금 말로는 주관적), 
+마음이나 시야 앞에 놓인 것
+
+subiectum 이 바닥에 놓인 실체(지금 말로는 객관적)
+hypokeimenon
+아래에 놓임
+→ 어떤 것이 얹히는 바탕
+
+---
+
+본다 ─────→ 산
+            object of sight
+
+생각한다 ─→ 전쟁
+            object of thought
+
+원한다 ───→ 음식
+            object of desire
+
+본다 ----> 여러 개의 별
+           object of perception
+
+---
+
+entity
+
+우리의 세계/모델에서 이것을 하나의 존재 항목으로 인정한다
+
+있다는 것 자체만 주장하고 다른 건 아무것도 안 합니다
+존재론적 개입을 최소화하고 싶을 때
+
+---
+
+instance
+instance 는 이항
+관계어
+
+무엇의 사례인가
+"x is an instance" — of what 이 따라옵니다
+
+그것이 어디서 왔는지 말할 때
+
+---
+
+object
+
+어떤 조작 앞에 놓여 있는 것
+
+그것을 다룰 때
+
+이 객체를 리스트에 넣어라
+
+---
+
+Simula
+
+각자 상태를 갖고 시간에 따라 각자 행동하는 구성원 수십 개가 상호작용하는 시스템을, 어떻게 기술할 것인가
+
+Simula I 의 답이 process 였고, 
+Simula 67 이 그걸 class 와 object 로 일반화
+
+배, 고객, 기계, 작업 같은 시뮬레이션 세계의 개체들을 프로그램 안에서 직접 표현하고 싶었던 것
+
+self-contained program having its own local data and actions
+
+모델링하는 세계에서 하나의 독립적인 역으로 취급할 것이라는 설계 선택
+
+각각 자기 내부 상태를 가지고 있으며 서로에게 직접 침입하는 대신 message로 통신하는 이미지
+
+---
+
+object ↔ value
+
+값 — 3, "hello". 내용이 같으면 같은 것. 변경 개념이 없음
+객체 — 내용이 같아도 다른 것일 수 있음. 별칭이 관측됨. 변경이 의미를 가짐. 수명이 있음
+
+---
+
+Smalltalk, Alan Kay
+
+각각 자기 내부 상태를 가지고 있으며 
+서로에게 직접 침입하는 대신 message로 통신하는 이미지
+
+┌─────────┐       message       ┌─────────┐
+│ Object A│ ──────────────────→ │ Object B│
+│         │                     │         │
+│ private │                     │ private │
+│ world   │                     │ world   │
+└─────────┘                     └─────────┘
+
+objects have their own memory
+
+막으로 둘러싸인 자족적 단위들이 메시지로만 소통한다
+침투
+
+---
+
+object-oriented
+
+무엇을 향해서 프로그램을 조직할 것인가
+
+“컴퓨터가 무슨 절차를 수행하는가?” 에서
+“이 시스템에는 어떤 것들이 존재하고, 각각이 어떤 상태를 가지며 어떻게 행동하는가?” 로 시선을 돌린 것
+
+---
+
+Simula의 출발점은 1962년의 discrete-event simulation
+
+Ship #17 arrives
+Crane #3 starts unloading
+Ship #18 waits
+Ship #17 leaves
+...
+
+---
+
+ALGOL식 사고에서는
+
+shipPosition[17]
+shipSpeed[17]
+shipCargo[17]
+
+moveShip(17)
+unloadShip(17)
+destroyShip(17)
+
+상태와 그 상태를 다루는 절차가 흩어진다
+
+---
+
+시뮬레이션하는 사람의 머릿속에는
+
+       Ship #17
+       /      \
+   state      behavior
+
+라는 하나가 있는데
+
+---
+
+프로그램에서는
+
+data structures                  procedures
+----------------                 ----------
+shipPosition[]                   moveShip()
+shipSpeed[]                      unloadShip()
+shipCargo[]                      dockShip()
+
+---
+
+자기 local data와 action을 가진 self-contained program
+
+---
+
+object ↔ passive record/data
+
+record도 여러 데이터를 하나로 묶는다.
+
+ShipRecord
+{
+    position
+    speed
+    cargo
+}
+
+하지만 Simula object에는 action까지 들어갔다.
+
+Ship
+{
+    position
+    speed
+    cargo
+
+    move()
+    unload()
+    wait()
+}
+
+---
+
+폰 노이만 그림
+
+CPU 하나가 수동적 메모리를 주무른다는 모형
+어디서든 무엇이든 건드릴 수 있는 평평한 저장소
+
+안을 못 들여다보고, 메시지로만 오갑니다
+
+자족적인 작은 것들의 network
+
+규모
+이해 가능성
+
+규모가 커져도 개념 수가 안 늘어나요
+
+---
+
+부분이 전체를 닮게 하려 했어요
+
+---
+
+내기
+
+요구사항이 바뀌면 절차는 바뀝니다. 
+하지만 고객, 계좌, 주문은 남아요. 
+그러니 잘 안 변하는 축을 따라 자르자는 겁니다.
+
+GUI, 시뮬레이션, 게임처럼 정체성과 상태를 가진 것들이 실제로 있는 도메인에서는 잘 맞습니다
+컴파일러, 데이터 파이프라인, 수치 계산처럼 자연스러운 단위가 변환인 곳에서는 안 맞아요
+
+Yegge 의 "명사의 왕국" 풍자가 이 실패를 겨냥한 겁니다
+대응하는 세계-사물이 없는데 억지로 명사를 만들어내면 AbstractSingletonProxyFactoryBean 같은 게 나옵니다
+
+객체지향 패러다임에 지나치게 몰입한 결과, 동사(동작/함수)가 독립적으로 존재하지 못하고 
+반드시 명사(객체)에 종속되어야만 하는 구조적 한계
+
+세상 모든 동작이 명사의 형태를 띠어야 합니다. 
+단지 무언가를 실행하고 싶을 뿐인데도, 동작을 담을 객체를 만들고 
+그 객체를 관리할 공장 객체("Factory")와 생성 객체("Builder")를 먼저 만들어야 하는 비효율성
+
+단지 "스마트폰으로 전화 걸기"라는 동작을 수행하려 할 때
+PhoneCallManager (전화 통화 관리자 객체 생성)
+PhoneCallFactory (전화 통화 공장 객체 생성)
+PhoneCallExecutor (전화 통화 실행기 객체 생성)
+PhoneCallExecutor.execute() (실행기 객체 안의 메소드를 호출하여 겨우 실행)
+
+---
+
+이건 무엇을 모형화하는가. 
+답이 있으면 Simula 계열이고, 세계-사물 대응이 정당화 근거
+
+이걸 통째로 다른 구현으로 갈아끼울 수 있는가. 
+이 질문이 살아있으면 Kay 계열이고, 막과 메시지가 정당화 근거
+
+둘 다 아니면 그건 함수 몇 개 담을 데가 필요했던 겁니다
+그 경우 클래스를 없애고 함수로 푸는 게 대개 맞습니다.
+
+---
+
+instantia
+
+곁에 있음, 현전, 긴박함
+가까이 서다, 닥쳐 있다
+순간, 즉각
+
+at the instance of X
+X 의 독촉
+원뜻을 보존한 화석
+
+관계어 
+
+---
+
+아리스토텔레스의 ἔνστασις를 옮긴 말로
+
+반론
+상대 명제에 맞서 세우는 명제
+맞서 섬
+앞을 가로막고 놓인 것
+
+반례
+보편 주장을 무너뜨리려면 개별 사례 하나면 충분
+"모든 백조는 희다"에 맞서는 검은 백조 한 마리
+
+보편에 맞세우는 개별 사례
+
+---
+
+보편에 맞서던 개별이 
+보편에 속하는 개별이 됩니다
+
+---
+
+클래스가 보편자, 객체가 개별자
+이것이 어떤 일반형의 구체적 사례인가
+
+---
+
+반론도 무엇에 대한 반론이고, 
+반례도 무엇에 대한 반례고, 
+예화도 무엇의 예화
+
+instance도 무엇의 instance
+
+---
+---
+---
+---
+---
+---
+
+DMI = Direct Media Interface
+Intel의 CPU ↔ PCH 전용 고속 chip-to-chip 링크
+실체는 PCIe
+
+DMI 1.0 은 양방향 10 Gb/s 였고 실질적으로 수정된 PCI Express v1.1 x4 인터페이스
+
+CPU가 PCH 쪽 USB controller나 SATA controller, PCH에 매달린 PCIe 장치에 접근한다면 그 트래픽이 DMI를 지난다
+메모리 컨트롤러와 그래픽용 PCIe 레인은 CPU 안으로 들어갔습니다
+
+---
+
+2-chip 구성
+
+[CPU package]
+    ║ ║ ║ ║       
+    ║ DMI ║
+    ║ ║ ║ ║
+[PCH package]
+
+---
+
+OS에 노출되지 않는 내부 링크
+software-transparent
+
+---
+---
+---
+
+SPI = Serial Peripheral Interface
+짧은 거리의 동기식 직렬 통신 방식
+
+---
+
+CLK: clock
+마스터가 공급
+
+MOSI: Master Out, Slave In
+마스터 → 슬레이브
+
+MISO: Master In, Slave Out
+슬레이브 → 마스터
+
+CS: Chip Select
+칩 선택, 슬레이브마다 한 가닥
+
+master/slave 대신 host/client 또는 initiator/target 같은 표현도 쓴다
+클럭이 한 번 뛸 때마다 양방향으로 1비트씩 동시에 오갑니다
+
+---
+---
+---
+
+M.2 NVMe SSD
+
+M.2 모양의 카드이며, PCIe를 통해 연결되고, NVMe 명령 체계를 사용하는 SSD
+
+---
+
+ATA/IDE (1986)
+컨트롤러를 드라이브 안으로 넣은 게 핵심 혁신
+Integrated Drive Electronics
+
+---
+
+Parallel ATA
+Serial ATA
+
+PATA의 병렬 전기적 한계를 해결하기 위해 직렬 링크로 전환
+
+---
+
+AHCI, Advanced Host Controller Interface
+SATA 컨트롤러의 인터페이스
+회전 디스크를 전제하고 설계
+
+OS
+ │
+AHCI driver
+ │
+AHCI Host Controller
+ │
+SATA
+ │
+HDD / SATA SSD
+
+---
+
+저장장치 자체가 느리기 때문에 command 처리 software overhead나 queue 구조가 정교할 필요가 없었다
+
+NAND flash 기반 SSD가 등장
+고성능 SSD가 SATA 6 Gb/s의 한계에 가까워지기 시작했다
+
+매체가 아니라 인터페이스가 병목이 됐습니다
+
+---
+
+이미 CPU 주변에는 훨씬 빠르고 확장성 좋은 PCI Express가 있는데, 
+SSD도 거기에 직접 붙이면 되지 않을까?
+
+CPU
+ ↓
+AHCI controller
+ ↓
+SATA
+ ↓
+SSD
+
+---
+
+CPU
+ │
+PCIe
+ │
+SSD Controller
+ │
+NAND
+
+---
+
+PCIe는 기본적으로 운송로다.
+“이 lane을 통해 packet을 어떻게 보낼 것인가”는 정해주지만
+SSD에게 block 93842를 읽으라고 어떻게 명령할 것인가?
+까지 저장장치 관점에서 정의하지 않는다
+
+그래서 SSD용 명령 인터페이스가 필요
+NVMe = Non-Volatile Memory Express
+
+---
+
+NVMe 1.0은 2011년 3월 발표
+
+SSD 같은 빠른 비휘발성 메모리를 위해 처음부터 새로 설계한 host ↔ storage 명령 체계
+
+---
+
+기존 2.5인치 SSD
+노트북이 얇아질수록 이 케이스와 케이블이 공간을 많이 차지
+그래서 SSD PCB를 그냥 작은 카드로 만들어 메인보드에 직접 꽂자는 흐름이 생겼다
+
+M.2
+form-factor family
+
+M.2 2280
+22 mm wide
+80 mm long
+
+2230
+2242
+2260
+2280
+22110
+
+---
+
+M.2가 저장장치 전용 규격 아니라는 점
+
+M.2 SATA SSD
+M.2 PCIe/NVMe SSD
+M.2 Wi-Fi card
+M.2 cellular modem
+
+---
+
+M 키 — PCIe ×4. NVMe SSD 가 여기
+B 키 — PCIe ×2, SATA 등. 대역폭이 좁음
+B+M — 홈이 둘. 양쪽 슬롯에 다 꽂히지만 ×2 로 제한
+A/E 키 — Wi-Fi, 블루투스 카드
+
+---
+---
+---
+
+낸드는 블록 장치처럼 동작하지 않습니다.
+읽기 단위와 쓰기 단위와 지우기 단위가 다릅니다. 
+제자리 덮어쓰기가 안 되고, 셀마다 수명이 있어요.
+
+이 사실을 감추는 게 드라이브 안의 FTL(Flash Translation Layer)
+
+논리 블록을 물리 위치에 매핑하고, 웨어 레벨링
+드라이브 안에 작은 로그 구조 파일시스템이 하나 더 들어 있는 셈
+
+그래서 성능 절벽이 생깁니다. 
+쓰기 증폭, GC 중 지연 급증, SLC 캐시 소진 후 급락
+파일시스템이 보는 "덮어쓰기"는 실제로는 다른 데 새로 쓰고 매핑 테이블을 갱신하는 것
+
+블록 모형이 대부분 맞다가 특정 영역에서 완전히 무너집니다.
+
+ZNS(Zoned Namespaces)와 Open-Channel SSD 가 이 경계의 재협상 시도입니다. 
+감추지 말고 실제 구조를 노출하자, 대신 호스트가 책임지자
+
+위층에 일을 떠넘기는 대신 거짓말을 없애는 것
+이런 재협상이 성공하는지 보는 게
+
+---
+
+3D NAND
+
+2010년대 초에 평면 미세화가 벽에 부딪힙니다
+
+수평 방향으로는 오히려 옛날 공정으로 돌아갔어요. 
+셀이 커졌고, 그래서 전자가 다시 많아져 신뢰성이 좋아졌습니다. 밀도는 층수로 벌고요
+
+SK하이닉스가 321층, 삼성이 286층, 마이크론이 276층
+
+---
+---
+---
+
+x86-64에서 user mode의 평범한 코드가
+
+mov eax, SYS_read
+...
+syscall
+
+을 실행할 수 있다
+
+---
+
+IA32_LSTAR
+Long System Target Address Register
+
+유저 공간(Ring 3)에서 SYSCALL 어셈블리 명령어가 실행되었을 때, 
+CPU가 제어를 전환하여 커널 공간(Ring 0)으로 점프할 진입점(Entry Point) 가상 메모리 주소를 저장
+
+CPU가 IA32_LSTAR MSR (Model Specific Register)에 설정된 주소를 읽어 Instruction Pointer(RIP)에 로드합니다.
+
+이를 통해 권한이 Ring 0로 승격되며 커널의 시스템 콜 핸들러 코드가 즉시 실행됩니다.
+
+---
+
+페이지 테이블에 커널 페이지가 supervisor 전용으로 표시돼 있어서, 점프하려는 순간 폴트가 납니다
+
+모드 전환을 일으키는 것 말고는 아무 일도 안 하는 특수 명령어
+그 명령어는 "어디로 갈지"를 지정하지 않습니다. 커널이 미리 정해둔 곳으로 갈 뿐이에요.
+
+---
+
+IDT 의 대부분 항목은  DPL(Descriptor Privilege Level) = 0
+Interrupt Descriptor Table
+
+0x80 번만 DPL=3 으로 열어둡니다. "이 번호로만 들어와라"
+
+---
+
+user
+  ↓
+[trusted libc gate]
+  ↓
+kernel
+
+---
+
+user code ───────┐
+                 │
+libc wrapper ────┼──→ CPU가 제공하는 syscall gate → kernel
+                 │
+custom asm ──────┘
+
+---
+
+누가 syscall 명령을 실행했는지는 보안 근거가 아니다. 
+커널은 “glibc에서 왔으니 믿는다”라고 생각하지 않는다.
+
+커널 입장에서는 모든 user-space 요청이 잠재적으로 적대적이다
+system call 안에서 file descriptor가 유효한지, 이 process가 권한을 갖는지, user pointer가 접근 가능한 주소인지, 
+인자 값이 적법한지 등을 검사한다
+
+---
+
+library wrapper
+
+architecture-specific API를 프로그래머가 쓰기 좋은 함수 호출 형태로 포장한 user-space adapter
+
+RAX에 syscall 번호 넣고 RDI/RSI/... 설정하고 syscall 같은 ABI를 직접 다루고 싶어 하지 않는다.
+
+read(fd, buf, count)라는 평범한 함수처럼 보이게 만드는 층이 library procedure
+
+---
+
+printf 는 시스템콜이 아닙니다. 
+포맷 문자열을 파싱하고 버퍼에 쌓아둡니다. 
+printf 를 여러 번 불러도 write 는 한두 번 나갑니다.
+
+malloc 은 시스템콜이 아닙니다. 
+아레나를 관리하고, 프리 리스트를 굴리고
+부족할 때만 brk 나 mmap 을 부릅니다
+malloc 을 여러 번 불러도 시스템콜은 몇 번 안 나갑니다.
+
+---
+---
+---
+---
+---
+---
+
+어떤 현실이 있다고 하자
+
+Alice
+Bob
+Carol
+
+이 셋에 대해서는 엄청나게 많은 사실을 말할 수 있다
+
+Alice는 Bob의 부모다
+Alice는 Carol보다 나이가 많다
+Bob은 Carol을 좋아한다
+Alice의 키는 170cm다
+Bob은 서울에 산다
+
+---
+
+그런데 지금 관심사가 가족관계뿐이라고 해보자.
+그러면 쓸 말을 제한한다.
+
+Σ = {
+    ParentOf(x, y)
+}
+
+여기서 Σ는 이번 모델에서 사용할 어휘 목록이다
+
+---
+
+그러면 이 세계를 보면서 물을 수 있는 질문도 제한된다.
+
+ParentOf(Alice, Bob)?
+ParentOf(Alice, Carol)?
+ParentOf(Bob, Carol)?
+
+---
+
+Σ의 경계
+
+Alice의 키는?
+Bob은 어디 사나?
+누가 누구를 좋아하나?
+
+는 이 모델에서는 아예 표현할 방법이 없다
+
+---
+
+모델이론에서 signature는 어떤 관계·함수·상수를 말할 수 있는지 정하는 기호들의 목록
+signature(서명, vocabulary)
+
+---
+
+Σ = 약속 목록. 손님이 의지해도 되는 것들의 목록.
+
+메뉴판에 있으면 → 주방이 못 바꿉니다. 바꾸면 계약 위반이에요.
+메뉴판에 없으면 → 주방이 마음대로 바꿉니다. 냄비를 바꾸든 요리사를 갈든 손님이 뭐라 할 수 없습니다.
+
+"Σ 경계를 어디에 그을 것인가"는 메뉴판에 뭘 올릴지 정하는 일입니다.
+
+많이 올리면 — 손님은 많은 걸 믿을 수 있지만 주방이 아무것도 못 바꿉니다.
+적게 올리면 — 주방은 자유롭지만 손님은 믿을 게 별로 없습니다.
+
+---
+
+Linux 메뉴판: "시스템콜 1번은 write 다. rdi 에 fd, rsi 에 버퍼, rdx 에 길이를 넣고 syscall 해라."
+
+이게 메뉴에 올라가 있으니 당신이 직접 주문해도 됩니다. 
+libc 는 그냥 대신 주문해주는 도우미예요. 안 써도 그만입니다.
+
+대가는 이겁니다. 시스템콜 번호를 영원히 못 바꿉니다. 
+잘못 설계한 것도 못 없애요.
+
+---
+
+Windows 메뉴판: "ntdll.dll 의 NtWriteFile 을 불러라."
+
+시스템콜 번호는 메뉴에 없습니다. 주방 내부 사정이에요. 
+그래서 업데이트마다 바뀝니다. 번호를 직접 쓴 프로그램은 다음 패치에서 깨집니다.
+
+대가는 반대입니다. 라이브러리를 반드시 거쳐야 합니다. 
+대신 마이크로소프트는 내부를 자유롭게 고칠 수 있어요.
+
+---
+---
+---
+---
+---
+---
+
+C 언어 register 키워드
+
+초기 C 컴파일러가 레지스터 할당을 전혀 못 했기 때문
+그래서 "이 변수는 레지스터에 두라"고 사람이 손으로 알려줘야 했어요
+
+---
+
+C 프로그램은 시작 코드가 필요
+메모리가 16KB 인 기계에서 이런 게 몇 KB 를 먹으면 치명적
+
+어셈블리에는 런타임이 0
+
+---
+
+crt1.o crti.o crtbegin.o  hello.o  -lgcc -lc  crtend.o crtn.o
+
+main 은 프로그램의 진입점이 아닙니다. 진짜 진입점은 _start 입니다.
+커널이 execve 로 프로그램을 올릴 때 main 을 부르지 않아요
+ELF 헤더에 적힌 진입 주소로 점프할 뿐이고, 거기 있는 게 _start 입니다
+
+커널 → _start → __libc_start_main → main → exit
+
+---
+
+_start 가 하는 일
+
+커널이 스택에 쌓아둔 argc, argv, envp 를 꺼내 정리
+프레임 포인터를 0 으로 (스택 바닥 표시)
+__libc_start_main 호출
+
+
+---
+
+__libc_start_main 이 하는 일
+
+TLS 초기화
+스택 보호 카나리 값 설정
+.init_array 실행 — 전역 생성자, __attribute__((constructor)) 함수들
+main 이 리턴하면 그 값을 받아 exit() 호출
+
+---
+
+main 에서 return 0; 하면
+리턴 주소가 __libc_start_main 안이고
+거기서 exit 를 불러주는 거
+
+---
+---
+---
+
+L1/L2/L3 cache는 일반적으로 SRAM
+두 inverter가 서로 물려 있어서 전원이 있는 동안 0/1 상태를 계속 유지
+DRAM처럼 주기적인 refresh가 필요하지 않다
+
+DRAM보다 빠르지만 bit당 면적과 회로가 복잡
+
+---
+
+Register
+→ transistor들을 latch/flip-flop으로 연결
+
+SRAM
+→ transistor들을 SRAM cell로 연결
+
+DRAM
+→ transistor + capacitor cell
+
+---
+
+레지스터 — 플립플롭 또는 다포트 SRAM. 비트당 트랜지스터 10~20개
+캐시 — SRAM. 비트당 트랜지스터 6개
+메인 메모리 — DRAM. 비트당 트랜지스터 1개 + 커패시터 1개
+
+---
+
+SRAM 셀 — 그냥 논리 회로
+
+6개 트랜지스터 중 4개가 인버터 두 개를 서로 물려놓은 것
+A 의 출력이 B 의 입력이고 B 의 출력이 A 의 입력
+이러면 두 상태 중 하나로 고정됩니다. 래치
+
+---
+
+DRAM 셀
+
+읽으면 파괴됩니다. 커패시터의 전하를 비트라인과 나눠 갖는 방식이라 읽고 나면 원래 값이 사라집니다
+감지 증폭기가 복원해서 다시 써넣어야
+
+---
+
+레지스터는 태그가 없습니다. 명령어 인코딩에 번호가 박혀 있으니 그냥 그 자리로 가면 돼요. 
+캐시는 주소를 받아 태그를 비교하고 히트/미스를 판정해야 합니다. 
+그 비교 회로가 지연의 상당 부분입니다.
+
+재료는 같고 조직이 다릅니다
+같은 재료 안에서의 정도 차이
