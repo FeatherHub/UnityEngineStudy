@@ -1,0 +1,203 @@
+Vector3.Lerp(a, b, t)
+
+t = Mathf.Clamp01(t);
+return a + (b - a) * t;
+
+---
+
+start  = 10
+target = 20
+t      = 0.1
+
+target - start = 10
+10의 10% = 1
+
+newPos = 10 + 1 = 11
+
+---
+
+start + target * t
+
+100 + 110 × 0.1
+= 111
+
+100 + (110 - 100) × 0.1
+= 101
+
+---
+
+target - start
+가 시작점에서 목표점까지 가는 벡터입니다
+
+거기에
+× t
+를 하면 그 거리의 일정 비율만 얻습니다
+
+---
+
+start에서
+target 방향으로
+전체 거리의 t만큼 간 위치
+
+---
+
+매 프레임 이렇게 쓰면
+매번 현재 위치에서 “남은 거리의 일정 비율”만 이동합니다
+
+이동 거리가
+
+10
+9
+8.1
+7.29
+...
+
+처럼 점점 작아집니다
+
+---
+
+이 패턴은 목표에 가까워질수록 감속하는 부드러운 움직임을 만듭니다
+
+---
+
+Lerp(a, b, t)의 t는 의미상 0~1 구간의 “진행 비율”
+
+---
+
+speed = 100
+deltaTime = 0.02
+
+t = 2
+
+이면 Unity가
+
+t → 1
+
+로 clamp하고 곧바로 target을 반환합니다
+
+---
+
+speed = -5
+deltaTime = 0.016
+
+t = -0.08
+
+이면
+
+t → 0
+
+이 되고 현재 위치가 그대로 반환됩니다
+
+---
+
+template<class T, class U>
+static constexpr T Lerp(const T& A, const T& B, const U& Alpha)
+{
+    return (T)(A + Alpha * (B - A));
+}
+
+Lerp(A, B, α) = A + (B − A)·α
+
+(1 − α)·A + α·B로 풀어 쓰면 "A와 B를 α 비율로 섞는다"
+
+---
+
+target − start는 현재 위치에서 목표까지의 벡터이고, 
+target 혼자는 월드 원점에서 목표까지의 벡터
+
+start = 100, target = 50, Δt·speed = 0.1
+
+Lerp는 100 + (50 − 100)·0.1 = 95라서 목표 쪽으로 가요
+target 혼자는 100 + 50·0.1 = 105라서 목표에서 멀어져요
+
+---
+
+// 원래 용도: 양 끝은 고정, Alpha는 0→1로 올라가는 '진행도'
+Elapsed += DeltaTime;
+Pos = FMath::Lerp(StartPos, EndPos, Elapsed / Duration)
+
+// 관용구: 첫 인자에 '현재값'을 넣고, 결과를 다시 현재값에 덮어씀
+Pos = FMath::Lerp(Pos, Target, Speed * DeltaTime);
+
+목표가 매 프레임 움직여도 알아서 쫓아가요
+
+---
+
+(target − pos)·speed, 즉 남은 거리에 비례하는 속도
+
+---
+
+속도가 남은 거리에 비례하니까 결과는 지수 감쇠
+
+멀면 빠르고 가까울수록 느려지는 ease-out
+
+---
+
+함정
+
+"속도 = (target − pos)·speed"의 정확한 해
+pos(t) = target + (pos₀ − target)·exp(−speed·t)
+
+프레임 단위 갱신은 이걸 오일러 적분으로 근사한 것이라 fps마다 궤적이 달라져요
+
+speed = 10일 때 0.1초 뒤 남은 거리
+
+30fps는 (2/3)³ ≈ 29.6%
+60fps는 (5/6)⁶ ≈ 33.5%
+120fps는 (11/12)¹² ≈ 35.2%
+fps → ∞ 극한은 e⁻¹ ≈ 36.8%예요
+
+저fps일수록 목표에 더 빨리 따라붙어요
+
+---
+
+speed·Δt가 1을 넘으면 망가져요
+
+히치로 Δt가 0.25초로 튀면 speed = 10일 때 α = 2.5가 돼요
+
+UE의 Lerp는 Clamp가 없으니 목표를 지나쳐서
+원래 남은 거리의 1.5배만큼 반대편으로 튀어요
+α > 2가 이어지면 오차가 매 프레임 커지면서 발산해요
+
+오일러 적분의 안정 조건인 speed·Δt < 2가 깨지는 것과 같은 얘기
+
+---
+
+Pos = FMath::Lerp(Pos, Target, 1.f - FMath::Exp(-Speed * DeltaTime));
+
+매 프레임 남은 거리에 exp(−speed·Δt)가 곱해져요
+
+exp(−speed·Δt₁)·exp(−speed·Δt₂)·… = exp(−speed·(Δt₁ + Δt₂ + …))이라서
+프레임을 어떻게 쪼개든 총 경과 시간만으로 결과가 정해져요
+
+α가 1을 넘지 않으니 안전해요
+
+---
+
+x가 작을 때 1 − exp(−x) ≈ x
+
+흔히 쓰는 speed·Δt는 이 정확한 값의 1차 근사이고, 
+고fps에서 "대충 맞는" 이유가 이거예요
+
+---
+
+현재 회전과 목표 회전 사이의 차이를
+얼마나 공격적으로 따라잡을 것인가
+를 조절하는 계수
+
+rotationResponsiveness
+rotationFollowRate
+rotationSmoothing
+
+---
+
+반대로 정말
+
+초당 90°
+
+같은 물리적인 각속도를 원했다면 Quaternion.RotateTowards가 대응합니다
+
+transform.localRotation = Quaternion.RotateTowards(
+    transform.localRotation,
+    targetRotation,
+    rotationSpeed * Time.deltaTime);
