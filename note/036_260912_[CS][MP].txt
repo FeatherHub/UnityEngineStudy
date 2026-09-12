@@ -1,0 +1,556 @@
+1960년대 용어법에서 multiprocessing은 물리적 CPU가 여러 개인 것을 뜻했습니다
+
+Burroughs D825(1962), IBM System/360 Model 65MP 같은 기계들이 "multiprocessor system"
+
+multiprogramming: CPU 하나를 몇 개의 작업이 나눠 쓰는가
+multiprocessing: CPU가 몇 개인가
+
+---
+
+1950년대 후반 ~ 1960년대 초: multiprogramming이라는 말이 쓰이기 시작
+Atlas supervisor(1962)가 대표적 구현
+
+1965: Multics 논문들에서 process를 본격적으로 사용
+
+1966: Dennis & Van Horn, "Programming Semantics for Multiprogrammed Computations"에서 process를 형식적으로 정의
+
+1968: Dijkstra, "The Structure of the 'THE'-Multiprogramming System"
+제목은 여전히 multiprogramming, 본문에서 sequential process를 도입
+
+---
+
+"같은 프로그램이 여러 프로세스에 들어갈 수 있다"은 시대착오적입니다.
+
+그 구분이 성립하려면 "파일로서의 프로그램 vs 실행 중인 무언가"라는 분리가 먼저 있어야 합니다
+
+그 시절엔 없었습니다
+
+잡 하나 = 카드 덱 하나 + 데이터, 코어 메모리의 자기 영역에 통째로 적재
+
+같은 덱을 두 번 돌리면 코어에 독립적인 이미지가 둘 생깁니다. 코드 공유 같은 건 없었고요
+
+그러니 "코어에 여러 프로그램이 올라가 있다"는 서술은 은유가 아니라 메모리 맵의 문자 그대로의 기술이었습니다.
+이름은 붙일 당시엔 정확했고, 그 구분이 생긴 이후 쪽에서 돌아볼 때만 틀려 보입니다.
+
+---
+
+"동시에 진행되는 듯한 환상"은 timesharing(CTSS, Multics)의 프레임
+multiprogramming의 원래 동기는 CPU 이용률
+
+I/O가 CPU보다 수천 배 느리니, 한 잡이 테이프를 기다리는 동안 비싼 기계가 놀지 않도록 
+코어에 잡을 여러 개 얹어두고 블록되면 갈아탄다
+
+지각 효과가 아니라 메모리·스케줄링 층위의 메커니즘을 이름 붙인 것입니다
+
+---
+
+degree of multiprogramming
+
+메모리에 있는 프로세스의 수
+프로세스를 세면서 단어는 programming을 유지합니다
+
+---
+
+multi + programming
+ing는 실체의 개수가 아니라 운용 양식을 명사화합니다
+
+---
+
+Program A를 메모리에 올림
+        ↓
+CPU가 A 실행
+        ↓
+A가 I/O 기다림
+        ↓
+CPU도 같이 놈
+        ↓
+A 종료
+        ↓
+Program B를 올림
+
+---
+
+혁신
+
+memory
+┌─────────────┐
+│ Program A   │ ← I/O 대기
+│ Program B   │ ← CPU 사용
+│ Program C   │
+└─────────────┘
+       │
+     1 CPU
+
+---
+
+1965년 Multics의 supervisor 논문
+
+CPU interrupt가 왔을 때 도대체 무엇이 interrupt되는가?
+
+정적인 program 자체가 중단되는 게 아니라 program의 execution이 중단됩니다
+Multics 연구진은 process를 program의 execution에 쓰고, 
+program은 하드웨어가 해독하는 비트 패턴을 뜻하도록 구분하겠다고 선언합니다
+
+정적 코드 / 실행 인스턴스의 구분
+
+---
+
+multiprogramming
+여러 program의 실행을 한 CPU에서 조정
+
+multiprocessing
+여러 CPU/processor에서 동시에 실행
+
+---
+
+multiprogramming
+multi [program streams / jobs in progress]
+           │
+           └── 하나의 CPU가 겹쳐 진행시킴
+
+multiprocessing
+multi [processors]
+           │
+           └── 여러 CPU가 실제로 동시에 수행
+
+---
+
+1958~1960 — Bull Gamma 60 (프랑스)
+복수 연산 유닛 + distributor
+최초의 멀티프로세서 설계로 자주 거론
+
+1960 — UNIVAC LARC. CPU 2대 + 독립 I/O 프로세서 구성 가능
+
+1962 — Burroughs D825. CPU 4대, 메모리 모듈 16개
+대칭형 멀티프로세싱(SMP)
+특정 CPU가 특정 메모리나 입출력 장치에 종속되지 않고 모든 자원에 동등하게 접근할 수 있는
+공유 메모리 멀티프로세서 구조
+
+성능이나 권한이 동일한 여러 개의 중앙처리장치(CPU)가 
+하나의 "공유 메모리"와 버스를 공동으로 사용하며, 
+단일 운영체제(OS)의 제어 아래 동등하게 작업을 처리하는 컴퓨터 구조
+
+---
+
+멀티프로세서 시스템 (별개 칩/캐비닛 여러 대): 1962년
+
+멀티코어 프로세서 (한 다이 위에 코어 여러 개)
+IBM POWER4가 2001년, 소비자용은 2005년 Athlon 64 X2 / Pentium D
+
+---
+
+프로그램 실행을 무엇으로 볼 것인가에 대한 규정
+
+Dijkstra의 모델
+
+하나의 프로세스 내부: 전순서. a₁ → a₂ → a₃
+프로세스 사이: 순서 없음. 오직 명시적 동기화 지점에서만 순서가 생김
+
+그래서 시스템 전체의 실행은 부분순서(partial order) 가 됩니다
+
+---
+
+프로세스 A와 B가 둘 다 이걸 실행합니다.
+
+R := x
+R := R + 1
+x := R
+
+1960년대 스케줄러는 I/O 블록 시점에만 전환합니다
+위 코드엔 I/O가 없으니 A가 통째로 끝나고 B가 돕니다
+결과는 언제나 x+2.
+
+프로그래머는 "이 코드 맞다"고 결론냅니다.
+그 근거는 "A의 세 줄 사이에 B가 끼어들지 않는다"
+그런데 이건 코드에 대한 명제가 아니라 스케줄러에 대한 명제입니다
+상대 속도 가정입니다.
+
+---
+
+상대 속도 가정을 금지하면 가능한 인터리빙을 전부 따져야 합니다.
+
+A₁ A₂ A₃ B₁ B₂ B₃  →  +2
+A₁ B₁ A₂ B₂ A₃ B₃  →  +1   ← 깨짐
+
+그러니 이 코드는 틀렸고, 세마포어로 감싸야 합니다.
+
+상대 속도 가정 금지 규칙은 정확성 증명에 쓸 수 있는 근거를 제한하는 규칙
+허용되는 근거는 두 가지
+프로세스 내부의 순서, 그리고 명시적 동기화
+
+정확성 논증에서 시간을 제거하는 것
+
+---
+
+이 모델에서 speed는 클럭 속도가 아니라
+진행률(progress rate)
+
+단위는 초당 사이클이 아니라 원자 동작 개수
+
+---
+
+A가 R:=x, R:=R+1, x:=R 세 줄을 도는 동안 B가 끼어들지 않는다는 것은
+A가 3 스텝 나아가는 동안 B는 0 스텝 나아간다
+
+---
+
+인터리빙이 나온 원인은 제각각
+
+스케줄러 정책, 테이프 지연, 인터럽트 빈도, 프로세서 개수
+
+관문 하나를 닫으면 상류의 원인 전부가 한꺼번에 차단됩니다
+
+---
+
+M = 상대 속도에 아무 제약이 없을 때 나올 수 있는 모든 실행
+S = CPU 1개 + 어떤 스케줄러에서 나올 수 있는 실행
+P = CPU 4개에서 나올 수 있는 실행
+
+M에 대해 증명하면 S와 P가 동시에 커버됩니다
+
+---
+
+스케줄러 정책, 타임슬라이스 길이, 인터럽트 빈도, I/O 지연, 명령어 실행 시간
+캐시 미스와 코어 수
+
+---
+
+multi-programming
+≈ 여러 program을 실행 체계 안에 함께 배치하여 운용하는 것
+
+여러 program instruction stream이 하나의 CPU를 공유하고
+dispatcher가 그 사이를 전환하는 환경
+
+single programming
+    program A를 실행 대상으로 삼아 운용
+
+---
+
+데이터 통신과 동기화의 병목
+
+독립된 컴퓨터끼리 데이터를 주고받으려면 당시의 느린 네트워크나 입출력 장치를 거쳐야 하므로 
+엄청난 시간 손실이 발생합니다
+
+반면 "공유 메모리" 구조에서는 CPU들이 같은 메모리를 바라보기 때문에 
+포인터 하나만 참조하면 데이터를 즉시 공유할 수 있습니다.
+
+---
+
+항목들을 하나의 자원 위에 편성(編成)하는 일
+방송국이 채널 하나에 여러 프로그램을 편성하듯이
+
+---
+
+πρόγραμμα (공개 게시문) → 행사 순서 → 연주회 프로그램(곡 순서) → 방송 편성
+
+미 공군 용어로 훈련·병참 계획
+
+---
+
+linear programming — 제약이 선형인 계획 수립
+dynamic programming — 단계적으로 전개되는 계획 수립
+multiprogramming — 복수 항목을 얹는 편성
+
+---
+
+coding — 실제 명령어를 기술하는 일
+programming — 계산의 전체 흐름을 설계·배치하는 일
+
+Planning and Coding of Problems
+planning과 coding이 별개
+
+---
+
+ENIAC에서 "programming"
+케이블과 스위치로 연산 순서를 배열하는 물리적 작업
+
+---
+
+degree of multiprogramming — 편성된 항목이 몇 개인가
+
+---
+
+유저 스페이스에 있는 프로세스가 "시스템 콜"을 발생시키면, 
+CPU는 해당 프로세스의 실행 모드를 "유저 모드"에서 "커널 모드"로 전환합니다
+
+같은 프로세스가 권한만 올려서 계속 달립니다
+
+---
+
+컨텍스트 전환(context switch)
+실행 주체가 A에서 B로 바뀜
+레지스터 전부 저장·복원, 주소 공간 교체, TLB 영향
+
+모드 전환(mode switch)
+실행 주체는 그대로, 특권 수준만 바뀜
+
+---
+
+현대 운영체제 구조에서 가상 메모리는 유저 공간과 커널 공간으로 나뉩니다
+유저 공간인 하위 영역은 각 프로세스마다 완전히 독립된 메모리 공간을 갖는 반면
+커널 공간인 상위 영역은 어떤 프로세스가 실행되든 동일한 커널 코드가 동일한 가상 주소 위치에 맵핑되어 있습니다
+
+---
+
+TLB
+Translation Lookaside Buffer
+
+가상 메모리 주소를 실제 물리 메모리 주소로 변환하는 과정을 
+빠르게 처리하기 위해 
+CPU 내부에 탑재된 고속 하드웨어 "캐시" 메모리
+
+CPU가 프로그램의 가상 주소를 참조해 실제 데이터에 접근하려면 
+메모리에 있는 페이지 테이블을 조회해야 합니다
+
+하지만 주소 변환을 위해 매번 메모리에 접근하면 전체적인 실행 속도가 크게 떨어집니다. 
+"TLB"는 최근에 변환되었던 가상 주소와 물리 주소의 짝을 기억해두어, 
+동일한 페이지를 다시 참조할 때 페이지 테이블을 거치지 않고 곧바로 물리 주소를 찾아낼 수 있게 해줍니다
+
+주소 변환 정보가 "TLB"에 존재하지 않는 상황을 "TLB 미스(Miss)"라고 하며, 
+이 경우에는 느린 메인 메모리의 페이지 테이블을 직접 조회한 뒤 
+그 정보를 "TLB"에 다시 기록하게 됩니다. 
+
+프로세스가 바뀔 때마다 가상 주소 공간이 달라지므로 
+"TLB" 전체를 비우거나 프로세스 식별자(ASID)를 이용해 유효성을 갱신하는 과정이 동반됩니다.
+
+---
+
+커널은 모든 프로세스의 가상 주소 공간 상위 절반에 매핑되어 있습니다
+(x86-64 Linux에서 0xffff8000... 이상)
+
+페이지 테이블 엔트리의 U/S 비트로 보호
+
+유저 모드에서는 접근하면 폴트, 커널 모드에서는 그냥 접근 가능
+페이지 테이블을 갈아끼울 필요가 없습니다. 주소 공간은 하나고, 통행증만 바뀝니다
+
+---
+
+시스템 콜 핸들러 안에서 current가 무엇을 가리킬까요
+호출한 그 유저 프로세스입니다
+
+커널 코드가 "나는 프로세스 X를 대신해서 실행 중"이라는 걸 알고 있다
+
+---
+
+OS/360의 SVC (SuperVisor Call) 명령도 같은 구조
+
+---
+
+"KPTI"는 "Kernel Page Table Isolation"
+
+2018년에 알려진 하드웨어 취약점인 "Meltdown"을 방어하기 위해 도입된 기술
+
+유저 스페이스와 커널 스페이스의 페이지 테이블을 완전히 둘로 나누어 관리
+
+기존에는 프로세스가 유저 모드로 실행될 때도 커널 영역의 주소가 페이지 테이블에 함께 존재했습니다
+단지 권한 비트가 유저 모드에서의 접근을 막도록 설정되어 있을 뿐이었습니다
+
+"Meltdown"은 유저 모드 코드가 접근할 수 없는 커널 메모리 주소를 가리키는 코드를 
+투기적으로 실행시킨 뒤
+권한 검사 에러가 발생하여 실행이 취소되더라도
+이미 캐시에 로드된 데이터의 흔적을 부채널 공격 기법으로 읽어내는 방식으로 동작했습니다
+
+---
+
+프로세서는 명령어 처리 속도를 극대화하기 위해 조건문 결과나 권한 검사 결과가 확정되기도 전에 
+다음 명령어를 미리 예측해서 실행합니다.
+만약 나중에 예측이 틀렸거나 권한 검사에서 실패한 것으로 판명되면, 
+프로세서는 레지스터나 메모리 등 아키텍처 상태를 원래대로 되돌려 
+사용자에게는 아무 일도 없었던 것처럼 감춥니다.
+
+문제는 연산 과정에서 사용된 데이터가 
+CPU 내부의 고속 "캐시 메모리"에 남는다는 점입니다
+
+---
+
+유저: 0x0000000000000000 ~ 0x00007fffffffffff (하위 절반)
+커널: 0xffff800000000000 ~ 0xffffffffffffffff (상위 절반)
+
+---
+
+프로세스가 100개면 주소 공간은 100개입니다
+하지만 그 100개의 페이지 테이블에서 상위 절반 엔트리는 전부 같은 물리 페이지를 가리킵니다
+
+커널은 물리 메모리상에 딱 하나 존재하고, 
+100개의 창문에서 동시에 보이는 것
+
+---
+
+게다가 같은 가상 주소에서 보입니다
+0xffffffff81000000은 어느 프로세스 문맥에서 보든 동일한 커널 함수입니다
+그래서 커널 내부 포인터가 프로세스 경계를 넘어도 유효합니다
+
+---
+
+커널 코드: 1개, 공유
+커널 전역 데이터: 1개, 공유
+커널 실행 상태: 스레드 개수만큼, 각자 소유
+
+---
+
+/proc/<pid>에 이 상태 상당 부분이 그대로 드러납니다
+
+├─ Virtual Address Space
+│   ├─ executable code
+│   ├─ shared libraries
+│   ├─ heap
+│   ├─ stacks
+│   └─ mmap 영역
+
+├─ Filesystem context
+│   ├─ current working directory
+│   ├─ root directory
+│   └─ umask
+
+├─ Identity / security
+│   ├─ PID, PPID
+│   ├─ UID / GID
+│   ├─ capabilities
+│   └─ namespaces
+
+├─ Signals
+│   ├─ disposition / handler
+│   ├─ pending signals
+│   └─ signal mask 일부는 thread 단위
+
+├─ Timers
+│   ├─ alarm
+│   ├─ interval timers
+│   └─ POSIX timers
+
+└─ Threads
+    ├─ registers
+    ├─ instruction pointer
+    ├─ stack
+    └─ scheduling state
+
+---
+
+fd = 3 같은 숫자는 이 테이블의 인덱스
+fd가 가리킬 수 있는 대상은 상당히 많습니다
+
+file descriptor
+     │
+     ├─ regular file       foo.txt
+     ├─ directory          /home/foo
+     ├─ pipe
+     ├─ FIFO
+     ├─ socket             TCP / UDP / Unix socket
+     ├─ device             /dev/...
+     ├─ terminal / pty
+     │
+     ├─ epoll instance
+     ├─ eventfd
+     ├─ signalfd
+     ├─ timerfd
+     ├─ inotify instance
+     └─ memfd ...
+
+/proc/<pid>/fd를 보면 일반 파일과 함께 socket:[...], pipe:[...] 같은 것도 나타납니다
+
+socket(AF_INET, ...)
+        ↓
+fd = 5
+
+timerfd_create(...)
+        ↓
+fd = 6
+
+eventfd(...)
+        ↓
+fd = 7
+
+---
+
+프로세스에는 각 signal을 받았을 때의 처리 정책이 있습니다.
+
+SIGINT  → handler A
+SIGTERM → default
+SIGUSR1 → ignore
+
+이것을 signal disposition이라고 합니다
+
+---
+
+process-wide pending signals
+thread-specific pending signals
+
+---
+
+alarm timer
+    expires in 10 sec
+         │
+         ▼
+      SIGALRM
+         │
+         ▼
+     Process P
+
+---
+
+ITIMER_REAL
+ITIMER_VIRTUAL
+ITIMER_PROF
+
+---
+
+timerfd를 사용하면 timer가 다시 fd 세계로 들어옵니다
+
+그래서 poll, select, epoll로 timer까지 I/O처럼 기다릴 수 있습니다
+
+---
+
+Resource limits
+
+maximum open files
+maximum address space
+maximum stack size
+maximum core dump size
+maximum pending signals
+
+---
+
+문자 디바이스 — tty, /dev/null, /dev/urandom. 대개 seek 불가
+블록 디바이스 — /dev/sda. seek 가능
+소켓 — struct socket이 붙고 자체 상태 기계를 가짐.
+파이프 / FIFO — 커널 버퍼(Linux 기본 64KB). 오프셋이 없음, lseek하면 ESPIPE
+
+---
+
+PID — Process ID
+실제로는 TGID(Thread Group ID)
+
+커널 내부에서 pid는 스레드 하나를 가리키고, tgid가 프로세스를 가리킵니다
+
+getpid()는 tgid를, gettid()는 pid를
+
+---
+
+PPID — Parent Process ID
+
+부모가 먼저 죽으면 자식은 init(PID 1) 또는 가장 가까운 subreaper에게 재부모화되고 PPID가 바뀝니다
+
+---
+
+PGID — Process Group ID
+
+그룹 리더의 PID를 그대로 씁니다
+특정 PID를 그룹 이름으로 재사용
+
+---
+
+셸에서 cat a.txt | grep foo | wc -l을 돌리면 프로세스가 셋 생깁니다. 
+Ctrl+C를 누르면 누구에게 시그널을 보내야 하나?
+
+하나에게만 보내면 나머지가 살아남습니다
+전부에게 보내면 셸까지 죽습니다
+
+"사용자가 하나의 작업으로 인식하는 프로세스 묶음" 이라는 단위가 필요
+그게 프로세스 그룹, 즉 셸의 job
+
+---
+
+kill()에 음수 PID를 넣으면 그룹 전체에 갑니다
+
+kill(-1234, SIGTERM)   /* PGID 1234 그룹 전체 */
+killpg(1234, SIGTERM)  /* 같은 것 */
