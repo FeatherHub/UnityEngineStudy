@@ -1,0 +1,586 @@
+reference type (class 같은 것)
+
+힙에 할당되고, 
+GC가 관리하고, 
+"정체성(identity)"을 갖는 타입
+
+---
+
+ref (managed pointer)
+
+ref 매개변수
+
+객체가 아니라 **메모리 위치 자체를 직접 가리키는 별칭(alias)**
+
+C# 7.2 이전엔 이런 종류의 포인터(managed pointer)는 
+매개변수·local·return 자리에만 허용됐지, 
+타입의 필드로 저장하는 건 금지돼 있었어요
+
+"이 struct는 내부에 ref(managed pointer)를 담아도 된다"는 허가
+대신 그 안전성을 지키려면 이 struct 자체가 딱 ref 변수랑 똑같은 제약을 물려받아야 해요
+
+---
+
+reference type이 아니라
+byref-like type
+
+---
+
+ref local (C# 7.0)
+
+int[] numbers = { 1, 2, 3, 4, 5 };
+ref int cell = ref numbers[2];
+cell = 99;
+// numbers == { 1, 2, 99, 4, 5 }
+
+---
+
+배열/컬렉션의 특정 원소를 함수 안에서 여러 번 읽고 쓸 때
+핫패스에서 인덱스 연산 반복을 줄이는 용도로 씀
+
+---
+
+ref return (C# 7.0)
+
+public struct Grid<T> where T : struct
+{
+    private T[] _cells;
+    private int _width;
+
+    public ref T this[int x, int y] => ref _cells[y * _width + x];
+}
+     
+grid[3, 4].Health -= 10;
+
+---
+
+메서드 안에서 만든 지역 변수를 ref return하려고 하면 컴파일 에러가 나요
+   
+ref int Bad()
+{
+    int local = 5;
+    return ref local; // CS8168: 지역 변수는 참조로 반환할 수 없음
+}
+
+---
+
+ref return이 가리킬 수 있는 대상은 구조적으로 몇 가지로 제한돼요
+
+매개변수로 받은 배열/Span의 원소, 필드, static 변수
+
+---
+
+var cell = grid.GetCell(3, 4); // struct 전체 복사 1회
+cell.Health -= 10;
+grid.SetCell(3, 4, cell);      // struct 전체 복사 1회 더
+
+---
+
+// 문자열을 분해하는데 substring 할당이 전혀 없음
+
+ReadOnlySpan<char> line = "3,7,15".AsSpan();
+int commaIndex = line.IndexOf(',');
+ReadOnlySpan<char> first = line[..commaIndex]; // 새 문자열 아님, 원본 위 슬라이스
+
+---
+
+// 임시 버퍼가 필요한데 GC 부담 없이 스택에만 잡고 싶을 때
+
+Span<int> buffer = stackalloc int[16];
+FillNeighborIndices(buffer, cellIndex, gridWidth);
+
+---
+
+"ref struct임"이 전염
+
+ref struct를 필드로 담는 타입은 그 타입 자신도 반드시 ref struct여야 한다
+
+---
+
+ref 매개변수/local/return은 그 자체가 포인터예요
+
+ref struct는 포인터가 아니라 평범한 값 타입 인스턴스예요.
+
+안에 포인터(ref 필드, 또는 Span처럼 포인터+길이)를 담아도 된다는 "허가"를 받은 것뿐이지, 
+ref struct 자체가 뭔가를 가리키는 건 아닙니다. 
+
+실제로 아무 ref도 안 담고 있는 ref struct(그냥 스택 전용 제약만 걸린 평범한 값 타입)도 얼마든지 만들 수 있어요
+
+---
+
+stackalloc 
+
+메모리를 힙이 아니라 현재 메서드의 스택 프레임에 잡는 거예요
+
+new int[16]은 힙 할당 + GC 추적 대상이 되지만, 
+stackalloc int[16]은 메서드가 리턴하는 순간 자동으로 사라집니다
+
+해제 비용도 없고 GC 압박도 없어요
+딱 그 함수 호출 동안만 필요한 임시 버퍼에 최적입니다
+
+---
+
+stackalloc이 반환하는 건 결국 "이 스택 프레임 안의 어떤 주소"예요
+
+---
+
+ref struct의 탈출 금지 규칙(힙 저장 불가, 필드 불가, 캡처 불가)
+
+---
+
+포인터 형태(int* buffer = stackalloc int[16];)는 이 안전장치가 전혀 없어요
+
+int*는 그냥 평범한 값이라 클래스 필드에 대입해도 컴파일이 됩니다
+그 순간 메서드가 리턴하면 곧바로 댕글링 포인터가 되는 거고, 컴파일러는 이걸 못 막아줘요
+
+---
+
+크기가 컴파일 타임에 안 정해지면, 무한정 큰 값이 들어올 경우를 막아야 해요
+
+스택은 보통 1MB 안팍이라 큰 stackalloc은 바로 StackOverflow로 프로세스가 죽습니다
+
+---
+
+Span<int> buffer = length <= 256
+    ? stackalloc int[length]
+    : new int[length]; // 큰 경우 힙으로 폴백
+
+---
+
+stackalloc된 메모리는 매 반복이 끝나도 회수되지 않고 
+메서드가 끝날 때까지 눌러앉아 있어서, 
+
+루프를 몇 번 도느냐에 따라 스택 사용량이 계속 누적될 수 있어요
+
+---
+
+in(C# 7.2)
+
+struct가 스스로 완전히 불변임을 보장하지 않으면
+컴파일러가 안전을 위해 복사본을 만들어서 멤버를 호출합니다
+
+defensive copy
+
+이걸 막는 게 readonly struct
+struct 전체는 mutable이어도 특정 메서드만 안 건드린다고 표시하는 readonly 멤버
+
+셋이 한 세트로 묶여서 "복사 없이 안전하게 읽기"를 완성합니다
+
+---
+
+public unsafe struct Particle
+{
+    public fixed float Position[3]; // Vector3와 동일한 12바이트가 struct 안에 그대로 박힘
+}
+
+fixed 문 — 관리되는 메모리를 잠깐 고정해서 포인터로 넘기는 것
+네이티브 플러그인 호출, interop에서 필수
+
+---
+
+고정 크기 버퍼(fixed int buf[8] 형태)
+
+struct 안에 배열이 아니라 값 자체를 인라인으로 박아넣는 것.
+C++ struct와 메모리 레이아웃을 맞춰야 할 때(엔진 네이티브 코드와 마샬링)
+
+public unsafe struct Particle
+{
+    public fixed float Position[3]; // Vector3와 동일한 12바이트가 struct 안에 그대로 박힘
+}
+
+---
+
+MemoryMarshal.Cast<TFrom, TTo> — Span<byte>를 Span<float>로 재해석하는 등
+복사 없이 타입만 바꿔 보는 것
+
+바이너리 세이브 데이터 파싱할 때
+
+---
+
+class/struct 이분법은 세 가지 서로 다른 질문을 한 스위치에 묶어놨었어요.
+
+"이 두 인스턴스가 같다는 게 무슨 뜻인가" (정체성/동등성)
+"이 데이터가 어디 있고 얼마나 사는가" (수명/위치)
+"지금 이 핸들로 값을 고칠 수 있는가" (접근권)
+
+class를 고르면 "참조 정체성 + 힙 수명 + GC가 관리 + 어디서든 고칠 수 있는 핸들"이 한 세트로 따라왔고
+
+struct를 고르면 "필드별 값 비교 + 복사 의미론 + 인라인/스택"이 한 세트로 따라왔죠
+
+---
+
+실무는 이 세 축이 독립적으로 필요한 경우가 많았어요
+지금까지 얘기한 기능들은 이 묶음 상품을 세 개의 독립 손잡이로 풀어헤치는 작업이었던 거예요
+
+---
+
+축 1 — 정체성: record가 이 축을 담당해요.
+"힙에 있지만 값이 같으면 같은 걸로 치고 싶다"(record class)는 
+원래 struct 동등성 의미론을 class 쪽으로 끌어온 거고요.
+
+---
+
+축 2 — 수명/위치: ref 매개변수·local·return, ref struct, stackalloc
+
+"값 타입이지만 이 메모리가 정확히 어디 있고 얼마나 사는지를 타입 시스템이 강제로 못박게 하고 싶다"
+
+---
+
+축 3 — 접근권: in, readonly struct, readonly 멤버
+
+"참조로 넘기되 이 경로로는 못 고치게"
+ref(쓰기 가능 별칭)와 대칭을 이루는 읽기 전용 별칭
+
+---
+
+다형성(부모 타입으로 자식을 다루는 것)은 
+"런타임에 실제 크기·타입을 모른 채로 간접 참조를 통해 다룬다"는 걸 요구
+
+값 타입이 값 타입인 이유가 그 간접성을 거부하는 것
+
+---
+
+예전엔 관례와 주의력으로만 지키던 규칙
+(이 struct는 절대 힙에 보내면 안 돼, 이 참조로는 절대 못 고치게 해야 해)을, 
+한 축씩 떼어내서 컴파일러가 대신 강제해주는 타입 시스템 기능으로 승격시키는 과정
+
+---
+
+지식은 어디에 사는가, 프로그래머의 머릿속인가 프로그램의 형식 안인가
+머릿속에만 있던 지식이 형식으로 이주
+
+---
+
+어떤 종류의 것이 있다고 말하려면 
+그것들이 언제 같고 언제 다른지의 기준부터 내놓아야 한다
+
+record Revealed(int AdjacentMines)라고 쓰는 순간 
+새로운 종류의 존재자가 "AdjacentMines가 같으면 같다"는 기준과 함께 제정돼요
+
+---
+
+class는 둔스 스코투스가 말한 '이것임(haecceitas)'의 편이에요. 
+
+필드가 전부 같은 두 객체는 여전히 둘이고, 
+필드가 전부 바뀐 한 객체는 여전히 하나죠. 
+
+테세우스의 배에서 판자를 모두 갈아도 같은 배인 건 
+동일성이 판자가 아니라 참조의 연속성에 실려 있어서예요
+
+---
+
+record는 라이프니츠의 '식별 불가능한 것들의 동일성' 편이에요. 
+
+판자가 모두 같으면 같은 배고, 
+with는 판자 하나를 간 기존 배가 아니라 새로 지은 다른 배예요. 
+
+struct는 처음부터 라이프니츠 편이었어요. 값은 자기 비트 말고는 아무것도 아니니까요 
+혁신은 힙 객체에 이 입장을 입법한 record class 쪽이에요.
+
+---
+
+record class는 두 입장의 잡종이에요
+
+밑바닥에는 여전히 '이것임'이 있어서 ReferenceEquals로는 보이지만, 
+공식적인 같음은 그걸 보지 않도록 정해져 있어요. 
+
+'이것임'이 실재하는지를 따지는 대신 어떤 구별이 우리 목적에 중요한지를 정한 거죠. 
+
+동일성이 곧 내용이라면, 내용이 바뀌는 건 다른 것이 되는 일이에요
+
+---
+
+가변 프로퍼티를 가진 record class를 
+
+HashSet에 넣은 뒤 값을 바꾸면 
+집합은 그 원소를 다시 찾지 못해요
+
+집합이 그 원소를 이제는 더 이상 그것이 아닌 동일성 아래 보관하고 있으니까요
+
+---
+
+값은 미리 정해진 크기의 자리에 놓인 비트일 뿐이고, 
+자기 타입조차 들고 다니지 않아요
+
+박싱되지 않은 struct에는 객체 헤더가 없어서, 
+그게 무슨 타입인지는 값 자신이 아니라 컴파일러만 알죠
+
+---
+
+런타임에 'A이거나 B'인 것을 가지려면 두 가지가 필요해요
+
+어느 쪽이든 담을 수 있는 자리와
+지금 어느 쪽인지 기억하는 태그예요
+
+클래스 계층은 이걸 간접 참조와 객체 헤더의 타입 포인터로 치러요
+
+case Revealed r:도 결국 그 헤더를 읽는 일이에요
+
+enum 태그 방식은 모든 경우의 필드를 다 품는 공간과
+손수 만든 enum 필드로 치르고요
+
+값 타입 상속은 이 둘 없이 '또는'을 달라는 요구라서 불가능해요
+태그 없는 '또는'은 런타임에 존재하지 않아요
+
+---
+
+A ∨ B의 증명은 쌍 ⟨i, p⟩예요
+i가 0이면 p는 A의 증명이고, 1이면 B의 증명이에요
+
+고전 논리에서는 어느 쪽인지 몰라도 A ∨ B를 주장할 수 있어요
+
+---
+
+Flagged 같은 케이스를 하나 추가하면 
+
+Match의 시그니처가 바뀌고 모든 호출부가 컴파일 에러를 내요
+불편해 보이지만, 컴파일 에러는 지식의 배달이에요
+
+새 사실이 그걸 알아야 하는 모든 곳에 강제로 도착하는 거죠
+
+공개 enum에 switch 문을 쓰는 방식은 새 케이스를 조용히 흘려보내고요
+
+---
+
+객체 참조의 세계에서는 이름이 존재를 떠받쳐요
+추적형 GC 아래서 객체는 루트에서 도달 가능한 동안만, 즉 누군가 그 이름을 부르고 있는 동안만 존재해요
+
+ref의 세계에서는 존재가 이름을 지배해요. 스택 슬롯의 존재는 시간, 즉 프레임이 지속되는 동안이 정하고
+ref는 '그것'이 아니라 '자리'를 가리켜요. 
+프레임이 끝나면 그 자리는 다음 호출의 지역 변수로 다시 채워지고, 남은 이름은 낯선 값을 가리키게 돼요
+
+"305호 투숙객"이라는 말이 체크아웃 뒤엔 다른 사람을 가리키듯이
+
+어떤 이름도 자기 자리보다 오래 살 수 없다는 것
+
+---
+
+ref struct의 ref를 한 문장으로 말할 수 있어요
+
+'참조한다'가 아니라 '시간의 법에 복속된다'는 표지
+
+---
+
+형식 안에서 지식은 어떤 모양일까요. 
+내용이 아니라 금지의 모양이에요
+
+더 많이 금지할수록 더 많이 말한다
+
+Match 설계는 "AdjacentMines는 Revealed일 때만 유효하다"를 어디에도 적어두지 않아요
+달리 읽는 것이 불가능하다는 형태로 저장하죠
+
+---
+---
+---
+---
+---
+---
+
+UnityCsReference/            (.cs 약 8,600개)
+├── Runtime/     (~530)   UnityEngine 코어 런타임 API
+├── Editor/      (~1,500) UnityEditor 코어 (에디터 전용)
+├── Modules/     (~6,500) 기능별 모듈 (런타임 + 에디터), 전체의 약 75%
+├── External/    (~90)    서드파티 및 내부 외부 라이브러리
+├── Projects/CSharp/      .sln / .csproj
+├── Tools/       빌드 시스템 (Bee, Unity.BuildSystem)
+
+진입점은 Projects/CSharp/UnityReferenceSource.sln
+
+---
+
+UnityEngine.csproj: 약 2,670개 파일. Runtime/, 런타임 모듈, 일부 External을 포함
+UnityEditor.csproj: 약 5,970개 파일. Editor/, 에디터 모듈을 포함
+
+---
+
+실제 Unity에서는 모듈마다 UnityEngine.PhysicsModule.dll 같은 별도 어셈블리로 나뉩니다
+참조 솔루션은 이것을 Engine과 Editor 두 덩어리로 합쳐 둔 것입니다
+
+---
+
+Scripting/: Object, Component, Behaviour, MonoBehaviour, 코루틴, Awaitable(async/await 지원), AsyncOperation
+
+Math/: Vector3, Quaternion, Matrix4x4, Mathf, Color
+
+Graphics/, Rendering/, RenderPipeline/, Shaders/: Mesh, Texture, Material, CommandBuffer, SRP 기반 API
+
+SceneManager/, PlayerLoop/, Time/, Application/: 씬 로딩, 게임 루프, 시간, 앱 생명주기
+
+Serialization/, Properties/, UnityEvent/: 직렬화 규칙, UnityEvent
+
+Debug/, Logging/, Assertions/, Diagnostics/: 로그와 어설션
+
+플랫폼별 폴더: iOS/, Apple/, WSA/, Windows/, Handheld/, XR/
+
+---
+
+Editor/Mono/(약 340개 항목)
+
+윈도우 시스템: EditorWindow, ContainerWindow, ConsoleWindow, BuildPlayerWindow
+
+IMGUI 기반 에디터 UI: EditorGUI, EditorGUILayout, EditorGUIUtility
+
+인스펙터: Editor, CustomEditorAttributes, PropertyDrawer 관련 코드
+
+에셋 파이프라인: AssetDatabase/, AssetPipeline/, AssetPostprocessor, AssetModificationProcessor
+
+빌드: BuildPipeline/, BuildProfile/, EditorUserBuildSettings
+
+기타: 씬 관리(EditorSceneManager), Undo, 스크립트 컴파일(CompilationPipeline), EditorApplication의 이벤트와 콜백
+
+---
+
+Unity 엔진은 기능 단위 모듈로 쪼개져 있습니다
+
+대체로 Xxx(런타임)와 XxxEditor(에디터) 쌍으로 구성됩니다
+
+Physics/PhysicsEditor
+Terrain/TerrainEditor
+Tilemap/TilemapEditor
+VFX/VFXEditor
+
+---
+
+UIElements(UI Toolkit 런타임, 660개)와 UIElementsEditor
+UIBuilder, UIToolkitAuthoringEditor
+
+---
+
+GraphToolkitEditor(841개로 가장 큼)
+GraphViewEditor, QuickSearch, ShortcutManagerEditor, SceneView, EditorToolbar
+
+---
+
+Physics, Physics2D, PhysicsCore2D, Cloth, Vehicles, TerrainPhysics
+
+---
+
+Animation, AnimationWindow, Director, TimelineFoundation
+
+---
+
+VFX, ParticleSystem, Lighting, VirtualTexturing, VectorGraphics, SpriteShape, SpriteMask, Tilemap, Terrain
+
+---
+
+AssetDatabase, AssetBundle, ContentBuild, ContentLoad, Streaming
+
+---
+
+PackageManager, PackageManagerUI, BuildProfileEditor, BuildReportingEditor
+
+---
+
+UnityWebRequest* 계열, UnityAnalytics, UnityConnect, Multiplayer, MultiplayerEditor
+
+---
+
+ManagedKernel, Marshalling, Scripting, Properties, JSONSerialize, Burst, Mathematics
+
+---
+
+ProfilerEditor, JobsProfilerEditor, ProjectAuditorEditor, CrashReporting
+
+---
+
+Input, InputLegacy, InputForUI
+
+---
+
+*.bindings.cs 파일은 C#과 C++를 연결하는 층입니다
+
+[NativeHeader("Runtime/Input/TimeManager.h")]
+[StaticAccessor("GetTimeManager()", StaticAccessorType.Dot)]
+public class Time {
+    public static extern float deltaTime { get; }
+}
+
+extern 멤버의 실제 구현은 C++에 있습니다.
+extern 멤버의 실제 구현은 C++에 있습니다.
+바인딩 생성기가 [NativeHeader], [NativeMethod], [NativeProperty], [FreeFunction] 같은 속성을 읽어 
+연결 코드를 자동으로 만듭니다
+
+---
+
+partial class로 파일을 나눕니다. 같은 클래스가 여러 파일에 걸쳐 있습니다.
+
+EditorApplication.bindings.cs: 네이티브 연결
+EditorApplication.cs: 순수 C# 로직
+EditorApplication.deprecated.cs: 폐기 예정 API
+
+---
+
+순수 C#으로 구현된 영역은 끝까지 읽을 수 있습니다. 다음 영역이 특히 그렇습니다.
+
+UI Toolkit(Modules/UIElements)
+Inspector, IMGUI 에디터 GUI(EditorGUI.cs)
+Package Manager UI, Search, GraphView, UI Builder
+
+---
+
+UnityCsReference
+
+참고용 라이선스라서 수정, 재빌드, 재배포, PR이 모두 불가능합니다
+
+---
+
+UnityCsReference로 알 수 있는 것
+
+에디터의 대부분
+
+순수 C#으로 구현된 런타임 시스템
+  UI Toolkit
+  UnityEvent, ObjectPool, Properties(프로퍼티 백), Mathematics, JSONSerialize 일부
+  Jobs/Collections의 C# 쪽
+
+공개 API의 정확한 계약과 숨은 API
+
+네이티브 경계의 위치
+
+---
+
+UnityCsReference로 알 수 없는 것
+extern에서 추적이 끊기는 모든 곳이
+
+렌더링 백엔드
+셰이더 컴파일러
+PhysX와 Box2D
+애니메이션 평가
+오디오 믹서, 파티클 시뮬레이션, 내비메시 빌드
+직렬화 코어: YAML/바이너리 직렬화기
+에셋 임포트 파이프라인 코어
+Job 스케줄러와 워커 스레드 관리, Burst 컴파일러 본체
+메모리 할당자, 에셋 로딩 스트리밍, AssetBundle 로딩 구현
+
+---
+
+C#이지만 여기에는 없는 코드
+
+URP/HDRP, Shader Graph, VFX Graph 그래프 쪽: 별도 패키지(Unity-Technologies/Graphics 저장소)
+Input System, Cinemachine, Netcode, Addressables, Entities(DOTS) 등
+UPM 패키지로 배포되므로 패키지 캐시에서 소스를 볼 수 있습니다
+
+---
+
+GetComponents<T>()는 매번 새 배열을 할당합니다
+GetComponents<T>(List<T>)는 전달한 리스트를 재사용합니다
+
+---
+
+Camera.main은 [FreeFunction("FindMainCamera")]로 선언된 네이티브 호출입니다
+최신 버전에서는 내부 캐싱
+
+---
+
+tag 프로퍼티와 CompareTag의 차이
+문자열을 할당하는지 여부가 갈립니다
+
+---
+
+Unity가 던지는 예외나 경고 문자열을 저장소에서 검색하면 어떤 조건에서 발생하는지 바로 찾을 수 있습니다
+
+버전 업그레이드 후 동작이 달라졌다면 git diff로 해당 버전 사이에 무엇이 바뀌었는지 추적할 수 있습니다
+
+---
+
+InternalsVisibleTo를 이용한 모듈 경계 설계
