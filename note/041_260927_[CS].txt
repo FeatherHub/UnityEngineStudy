@@ -1,0 +1,834 @@
+Identity
+
+the fact that something is one and the same across time
+
+---
+
+The goblin you hit a second ago is the goblin you're looking at now
+even though its position and health have changed
+
+The morning star and the evening star turned out to be one planet
+two ways of reaching it, one identity
+
+---
+
+Identity is not a token
+You can't store it, send it, or compare it directly
+
+Everything else on the list is a stand-in that tries to track it
+and each stand-in fails in its own way
+
+identity is the target, the rest are proxies
+and each proxy suits a particular kind of gap between you and the thing
+
+---
+
+진짜 관심 대상은 따로 있는데, 
+그것을 직접 붙잡을 수 없어서 
+그 자리에 세워 놓고 사용하는 간접적인 표지
+
+---
+---
+---
+
+Reference
+whatever you keep so you can get back
+
+If the thing is in your hand, you need nothing else
+
+The moment you let go, you need something that will lead you back to it.
+
+---
+
+A location, a number
+
+what will happen before you need the thing again
+
+Will it move? Will its place be reused? Will your program restart?
+
+---
+
+the thing is elsewhere in a shared space → address
+
+remember where the thing is
+
+An address describes a place, and the space itself resolves it
+you just go there
+
+---
+
+A raw pointer is a reference whose content is an address
+
+---
+
+But an address is about the place, not the thing
+
+It only works while the thing stays put and nothing else moves into its place
+
+---
+
+If the thing moves, the address goes stale: you arrive and the thing isn't there
+
+If something else takes the place, you get an impostor
+you arrive, find something else, and don't notice
+Use-after-free bugs are this failure
+
+---
+
+A가 주소 X에 존재
+→ A가 사라짐
+→ B가 같은 X를 차지함
+→ 관찰자는 여전히 X = A라고 생각함
+그러면 B는 단순한 replacement가 아니라 A의 impostor처럼 보입니다.
+
+impose — 위에 놓다
+imposition — 옛 의미로 속임
+imposture — 그 기만 행위
+impostor — 그 기만을 하는 자
+
+다른 것이 왔는데, 동일성 검사가 그것을 통과시켜 버렸다는 것이 중요합니다
+
+---
+
+Addresses also die with the space they belong to
+
+---
+
+To survive movement, reuse, and restarts
+keep something that belongs to the thing instead of to the place
+
+That is an identifier
+
+It is unique within some scope, stable for the thing's lifetime, and usually meaningless
+
+---
+
+It is resolved through a table that maps it to the thing's current address
+
+---
+
+The table is the price
+Someone has to keep it current
+
+---
+
+save files can store entity IDs or GUIDs instead of pointers
+
+an engine can move an asset and keep every reference intact
+
+---
+
+databases can join on surrogate keys instead of on physical row positions
+
+데이터베이스는 “행이 물리적으로 어디에 놓였는가”를 그 행의 정체성으로 삼지 않고, 
+그 행을 대신 식별하도록 만들어 둔 별도의 키를 이용해 조인할 수 있다
+
+---
+
+“source data에는 원래 없으며, 테이블 행을 고유하게 식별하기 위해 추가하는 identifier”
+
+---
+
+Identifiers
+scope
+
+An ID that is unique only within one run
+like an engine's per-session instance ID
+is useless in a save file
+
+If the system recycles identifiers,
+an old one can come back attached to a new thing, 
+which is the impostor problem again one level up.
+
+---
+
+handle
+
+it wants to move things, reuse slots, and cut off access
+So it issues you a handle.
+
+---
+
+an opaque token issued by an owner
+and resolved only by that owner
+
+---
+
+People need a name, chosen for meaning and memorability
+
+Names sit furthest from the thing and closest to minds
+
+---
+
+One thing can have many names: morning star and evening star
+
+One name can pick out many things: ten goblins all called "Goblin."
+
+A name only works inside a context
+The context is what resolves it
+
+---
+
+name → (context) → identifier or handle → (table) → address → (the space itself) → the thing
+
+---
+
+Keep an address if nothing will move before you come back.
+
+---
+
+Keep an identifier if things will move or the program will restart.
+
+---
+
+Keep a handle if someone else owns the things.
+
+---
+
+Keep a name if a person has to do the finding.
+
+---
+
+Same address means the same thing only if nothing moved and nothing was reused.
+
+---
+
+Same identifier means the same thing within the identifier's scope,
+provided identifiers are never reused.
+
+---
+
+Same handle means the same thing 
+for as long as the owner says the handle is still valid.
+
+---
+
+Same name tells you almost nothing
+two names can mean one thing, 
+and one name can mean two.
+
+---
+
+a difference with no place and no time
+
+Start with a distinction, the ability of something to be one way rather than another
+
+---
+
+a particular sequence of bytes
+considered apart from anything that embodies it
+
+A value has no location, no age, and no inside
+
+equality is all the identity a value has
+
+Values never change. "5 became 6" never happens
+a holder that held 5 now holds 6
+
+---
+
+A value can't exist in the world on its own
+Something physical has to hold it
+
+a charge, a magnetized patch, a neuron's configuration, ink on paper
+
+---
+
+A cell can hold different values at different times
+
+That gives us state, the value a cell holds now, and change
+the same cell holding different values at different times
+
+---
+
+Change needs two things values never had
+
+time (before and after) 
+and something that stays the same while its contents differ
+
+---
+
+That "something that stays the same" is where identity is born
+
+The cell before a write and after it is the same cell
+
+---
+
+a sequence of states, 
+each one the next state of the same thing
+
+---
+
+equality (same content at this moment)
+identity (same history)
+
+---
+
+Cells sit in a space
+way to pick one out is by position
+
+---
+
+An address names a place, not a thing
+and the space itself resolves it
+
+---
+
+An address can itself be stored as a value
+inside another cell
+
+---
+
+An address-based reference fails in two ways
+
+Stale: the thing moves, and you arrive to find it gone
+Impostor: the place is reused, and you arrive to find something else there without noticing
+
+---
+
+An object is a region of cells treated as one thing with one history
+
+It is guarded by a boundary, so only its own operations touch its state
+
+---
+
+object is the container that has a history
+values are the contents that pass through it
+
+---
+
+A moving garbage collector relocates objects 
+and rewrites every reference to them
+
+and the objects remain the same objects
+
+Identity was the history all along; 
+
+the address was only 
+where that history happened to be kept.
+
+---
+
+A process is a running computation 
+with a private address space 
+and its own sequence of steps
+
+---
+
+Addresses are relative
+
+An address only means something inside the space that defines it.
+
+---
+
+When a process ends, its space vanishes
+and every address and reference into it becomes meaningless
+
+---
+
+Disk
+
+It opens a gap in time wider than any process's life
+
+and addresses and references can't cross it
+because the space they pointed into is gone
+
+---
+
+Identifiers
+
+tokens that belong to the thing rather than to a place
+
+A registry resolves it to wherever the thing currently lives
+
+---
+
+Serialization
+
+To store a structure, you turn it into a value: bytes
+
+References have to be replaced by identifiers
+
+Loading reverses this
+objects are rebuilt at new addresses, 
+and identifiers are bound back to fresh references
+
+---
+
+Across a save and a load, every address changes
+
+The object survives only because an identifier carried "which one" across the gap.
+
+---
+
+identity's single history defended against interruption
+
+Writes take time, and machines crash mid-write
+
+a defined moment when a change becomes permanent
+
+a way to make multi-step changes all-or-nothing
+
+---
+
+Physically there are two things
+
+a pattern of charges in cell x and a pattern of charges in cell y
+
+They are different embodiments, in different places, with different histories
+
+---
+
+"4" is what the two have in common: value
+
+---
+
+x and y, the places that persist and change
+
+"The 4 in x"   
+"cell x, now, holding 4,"
+
+---
+
+embody, 몸을 입히다
+영혼이나 정신에 육체를 부여하다
+추상적인 원리·생각을 지각 가능한 형태로 표현하다
+
+어떤 것이 물리적 형태를 통해 나타난 것
+
+---
+
+추상적인 문자열
+HELLO
+
+이것의 embodiments
+
+종이 위의 "HELLO"
+RAM의 바이트 48 45 4C 4C 4F
+SSD에 저장된 바이트
+화면의 픽셀들
+네트워크 패킷 안의 바이트
+
+---
+
+물리적으로는 모두 다른 것인데
+
+different embodiments
+        ↓
+same content
+
+라고 취급합니다
+
+---
+
+the frictionless world of values
+
+값이라는 것이 물리적 운반체의 제약에서 벗어나 아무 저항 없이 복사되고 전달되고 비교되는 것처럼 다룰 수 있는 세계
+
+---
+
+읽거나 복사하려는 행위 자체가 상태와 얽혀 있고 마음대로 복제할 수 없는 정보
+
+---
+
+reference semantics식 사고라면
+
+electron A
+electron B
+
+same properties
+but
+A ≠ B because identity differs
+
+---
+
+value semantics식 사고
+
+electron
+= mass, charge, spin, quantum state ...
+
+별도의 hidden object identity 없음
+
+---
+
+Recognition is content-based
+
+You see a 4 by its shape
+not by which molecules of ink make it up.
+unless you attend to where and when they are
+
+---
+
+I can't hand you my 4. I can only cause a similar pattern in your head
+
+only values survive being copied from mind to mind
+
+---
+
+If each 4 had identity, 2 + 2 
+would produce "a 4," 
+and you would have to ask which one
+
+---
+
+Provenance
+
+"This 4 came from sensor A at 10:02"
+
+---
+
+how many 4s are in this list?
+requires positions to tell the 4s apart
+
+---
+
+while remaining numerically one and the same, 
+it can take on contrary qualities, 
+now pale and later dark, now hot and later cold
+
+---
+
+an object whose state changes while its identity holds
+
+---
+---
+---
+---
+---
+
+Math.Max(3, 5)
+(max 3 5)
+
+(+ 1 2)
+(* 3 4)
+
+(+ (* 2 3) (- 10 4))
+
+(operator operand ...)
+
+---
+
+(+ 1 (* 2 3))
+
+AST를 거의 그대로 적는 셈
+트리 구조가 표면으로 드러난 언어
+
+---
+
+(lambda (x)
+  (* x x))
+
+x => x * x
+
+---
+
+(if (> x 0)
+    x
+    (- x))
+
+---
+
+여러 조건: cond
+
+(define (sign x)
+  (cond ((< x 0) -1)
+        ((= x 0) 0)
+        (else 1)))
+
+(cond
+  (조건 결과)
+  (조건 결과)
+  (else 결과))
+
+---
+
+separates that a thing is from what it is
+
+---
+
+its essence doesn't include its existence
+
+knowing what a unicorn is doesn't tell you whether there is one.
+
+---
+
+positing
+
+the concept gets set into the world
+
+---
+
+A class fully describes what its instances will be, 
+
+and new adds existence, a position
+
+---
+
+The new object gets a place in memory
+
+---
+
+A type is only a description until something inhabits it
+
+---
+
+Nominal essence is the set of features by which we sort and name things.
+
+Real essence is the hidden constitution that produces those features.
+
+---
+
+A type is a sorting essence.
+
+type은 어떤 대상을 이쪽 몫에 넣고 저쪽 몫에서는 제외하는 원리다
+
+---
+
+the cube you never see all at once, only side after side
+
+---
+
+new Foo는 실행 중인 프로세스의 메모리에서 클래스 Foo의 모양대로 한 칸을 떼어 준 것이다
+
+---
+
+존재를 지탱하는 것
+
+관리형 언어
+도달 가능성이 지탱
+
+---
+
+객체의 동일성
+
+같은 프로세스 안에서만 유지되고, 
+쓰레기 수집기가 옮겨 메모리 주소가 바뀌어도 유지된다
+
+동일성을 확인하는 방법은 참조를 비교하거나, 한쪽을 바꾸고 다른 쪽을 보는 것
+
+---
+
+저장했다가 불러오면 
+
+내용이 같은 새 객체가 생길 뿐 
+같은 객체가 돌아오지는 않는다. 
+
+같은 객체라고 말하려면 따로 식별자를 들고 다녀야 한다.
+
+---
+
+객체에는 이름이 없다. 
+
+Foo a = new Foo()에서 a는
+객체의 이름이 아니라 변수의 이름이다
+
+---
+
+여러 변수가 한 객체를 가리킬 수 있고, 
+리스트 속 객체처럼 어느 변수에도 담기지 않을 수도 있다
+
+---
+
+질의. "빨간 팀이고 체력 10 이하인 적 전부"
+
+오브젝트를 하나씩 뒤지는 코드
+
+SELECT h.owner_id FROM Health h
+JOIN Team t ON t.owner_id = h.owner_id
+WHERE t.team = 'red' AND h.value <= 10;
+
+---
+
+transform.position을 읽는 것은 엔진에게 "이 행의 이 칸"을 묻는 호출이다
+
+---
+
+가짜 null은 손잡이 객체가 행보다 오래 살아남은 상태
+
+---
+
+오브젝트
+
+손잡이
+행 하나를 가리키는 창
+
+데이터는 테이블에서 빌려 본다
+
+게임플레이 코드가 "이 적", "이 문"처럼 생각할 수 있게 해 주는 층이다
+
+---
+
+서비스(시스템)
+
+데미지 계산, 이동, 충돌처럼 여러 행에 걸친 일을 맡는다
+
+---
+
+public readonly struct EnemyRef {                 // 행 하나를 가리키는 손잡이
+    public readonly int Id, Version;
+    public bool Alive => World.Enemies.IsAlive(Id, Version);
+    public float Health => World.Health[Id];      // 읽기는 테이블에서
+    public void Damage(float v) => World.Commands.Damage(Id, Version, v); // 쓰기는 명령으로
+}
+
+---
+
+데이터베이스를 배후에 두는 것
+
+진실은 한 곳에만 둔다
+
+오브젝트가 행의 데이터를 자기 필드에 복사해 두면(캐시), 
+그 순간부터 진실이 둘이 되고 언제 낡았는지 알 수 없게 된다
+
+손잡이는 키만 들고 데이터는 매번 테이블에서 읽는다
+
+---
+
+쓰기에는 주인이 있다
+
+어느 칸을 어느 시스템이 쓸 수 있는지 정해 둔다
+
+강체의 위치는 물리 시스템만 쓰고, 다른 코드는 힘을 가해 달라는 요청만 보낸다
+
+---
+
+생성과 삭제를 아무 때나 하면, 
+테이블을 훑던 다른 시스템이 반쯤 바뀐 세계를 보게 된다. 
+
+명령을 쌓아 두었다가 프레임의 정해진 지점에서 한꺼번에 적용한다
+
+---
+
+삭제 규칙
+
+행이 지워질 때 그것을 가리키던 외래키를 어떻게 할지 테이블마다 정한다. 
+
+함께 지울지, 비울지, 아니면 삭제를 막을지
+
+"Missing"은 이 규칙이 없을 때 생긴다.
+
+---
+
+전역 질문은 질의로, 자주 묻는 질문에는 색인을 둔다
+
+자주 묻는 질문이라면 활성화된 적의 목록을 따로 유지한다. 그것이 색인이다
+
+---
+
+매 프레임 오브젝트마다 GetComponent를 부르는 것은 
+작은 질의를 수천 번 날리는 것과 같다.
+
+---
+
+Object
+│
+│  Unity가 참조하고 관리할 수 있음
+│  - identity / instance ID
+│  - name
+│  - Instantiate / Destroy
+│  - Unity식 null / equality
+│
+▼
+GameObject
+│
+│  "Scene entity"라는 의미 추가
+│
+├─ Scene에 소속된다
+│    gameObject.scene
+│
+├─ 공간적 존재가 된다
+│    반드시 Transform을 하나 가진다
+│    parent / child hierarchy
+│
+├─ Scene hierarchy의 노드가 된다
+│    Transform hierarchy를 통해 부모/자식 관계
+│
+├─ Component의 부착점이 된다
+│    AddComponent
+│    GetComponent
+│    여러 Component를 한 entity로 묶음
+│
+├─ 활성 상태를 가진다
+│    activeSelf
+│    activeInHierarchy
+│
+├─  붙은 Component들의 lifecycle을 통제한다
+│    GameObject가 inactive →
+│    붙은 MonoBehaviour/Renderer 등도 영향을 받음
+│
+├─ Scene 시스템의 분류 대상이 된다
+│    tag
+│    layer
+│    static flags
+│
+
+---
+
+GameObject "Player"
+    ├─ Transform
+    ├─ SpriteRenderer
+    ├─ Rigidbody2D
+    ├─ Collider2D
+    └─ PlayerController
+
+GameObject는 이 기능들을 하나의 scene entity로 묶어주는 중심점
+appearance와 behavior는 Component가 결정한다
+
+---
+
+Material, Texture, Mesh, ScriptableObject도 Object이지만 
+Scene의 한 존재자는 아닙니다
+
+GameObject는 “이것 하나를 Scene 속 하나의 entity로 취급하자”라고 만든 계층입니다
+
+---
+
+일반 C# 객체는 CLR상의 managed object identity만 있습니다.
+
+반면 UnityEngine.Object에는 Unity가 부여하고 추적하는 별도의 identity가 있습니다
+
+Unity engine identity
+obj.GetInstanceID()
+
+---
+
+UnityEngine.Object 파생 인스턴스가 native counterpart와 연결된다
+
+---
+
+Instantiate(obj);
+Destroy(obj);
+FindObjectsByType<T>(...);
+
+---
+
+Unity native object system 안에
+이 managed UnityEngine.Object를 뒷받침하는
+native object identity가 있다
+
+---
+---
+---
+---
+---
+---
+
+.Where(u => u.Age >= 20)
+        ↓
+expression tree 생성
+
+.Select(u => u.Name)
+        ↓
+expression tree 확장
+
+        ↓
+EF Core provider가 읽음
+
+        ↓
+SQL로 번역
+
+SELECT Name
+FROM Users
+WHERE Age >= 20
+
+---
