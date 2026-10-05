@@ -1,0 +1,1504 @@
+m_inputs = GetComponentInParent<Inputs>()
+
+나로부터 루트까지 올라가는 경로 위 어딘가에 Inputs가 있다
+상류 어딘가
+
+∃ n ∈ path(self → root) : n has Inputs
+
+---
+
+transform.parent.GetComponent<Inputs>()
+더 강한 주장
+
+---
+
+Weapon이 항상 어떤 프리팹 안에서만 태어나고 
+그 프리팹 루트에 Inputs가 박혀 있다면
+확신은 정당해
+
+지형이 코드와 함께 출고되니까. 
+
+이때 GetComponentInParent는 사실상 프리팹 내부 배선이고, 
+가정으로 남겨 둬도 괜찮아.
+
+---
+
+반대로 Weapon이 기획자가 아무 데나 끌어다 놓는 
+범용 컴포넌트라면, 
+같은 줄이 근거 없는 확신이 돼.
+
+소유하지 않은 지형
+
+---
+
+이때는 요구로 승격해서 크게 터뜨리거나, 
+기대로 강등해서 대비하거나 
+둘 중 하나를 골라야 해
+
+---
+
+OnValidate
+
+에디터에서, 배치하는 순간 경고. 
+위반되는 자리에 가장 가깝다.
+
+직렬화된 필드로 받기
+
+---
+
+어떤 것이 있다 + 그것은 이런 것이다
+
+콜론을 경계로 왼쪽이 "어떤 것이 있다", 오른쪽이 "그것은 이런 것이다".
+
+∃ n ∈ path(self → root) : n has Inputs
+
+---
+
+∃ n → "n이라는 것이 존재한다". 
+아직 n이 뭔지는 모르고, 
+"뭔가 하나 있다"는 선언만 한 상태
+
+---
+
+∃는 "하나라도", 
+∀는 "전부"
+
+quantifier
+양화사
+
+---
+
+∈ path(self → root)
+어디에서 고를 거냐
+
+후보 집합
+
+ε
+element
+~의 원소인
+is an element of
+
+왼쪽은 원소, 오른쪽은 집합
+
+---
+
+∃ n ∈ S
+there exists n in S
+
+---
+
+self → root
+
+P = { self, parent(self), parent(parent(self)), …, root }
+
+{ }가 "이것들을 모은 집합"이라는 뜻
+쉼표로 원소를 나열
+
+∃ n ∈ P : …
+
+---
+
+predicate
+참 또는 거짓으로 판정 가능한 문장
+
+---
+
+Inputs ∈ components(n)
+
+n의 컴포넌트 집합에 Inputs가 속한다
+
+---
+
+∃ 문장을 판정하는 절차
+
+집합의 원소를 하나씩 n에 꽂아 보고, 
+하나라도 참이면 전체가 참.
+
+foreach (var n in path)
+    if (n has Inputs) return true;
+return false;
+
+---
+
+¬∃ n ∈ P : n has Inputs
+⟺ 
+∀ n ∈ P : ¬(n has Inputs)
+
+---
+
+predicate logic
+first-order logic
+
+---
+
+∃가 "하나만 찾으면 끝"
+∀는 "하나라도 어긋나면 끝"
+
+---
+
+for all
+for every
+
+∀ n ∈ S : P(n)
+"S의 모든 n에 대하여, P(n)이다"
+"for all n in S, P(n)"
+
+---
+
+∀ n ∈ S : n은 짝수
+
+S = {2, 4, 6}
+→ 참
+
+S = {2, 4, 7}
+→ 거짓
+
+---
+
+"내 자식들은 전부 Muzzle을 갖고 있다"라는 말은, 
+자식이 하나도 없으면 참이야. 
+거짓말을 한 자식이 없으니까
+
+이걸 공허한 참(vacuous truth) 이라고 불러
+
+직관에 거슬리지만 논리에서는 확정된 규칙
+
+코드의 All()도 빈 컬렉션에 true를 돌려줘
+
+---
+
+반대로 ∃는 빈 집합에서 항상 거짓.
+찾을 게 없으니까
+Any()가 빈 컬렉션에 false를 주는 것과 같아
+
+---
+
+이 비대칭이 실무에서 중요해.
+"모든 적이 죽었다 → 클리어" 라는 조건을 ∀로 쓰면, 
+적이 스폰되기 전에 이미 참이 돼 버려.
+
+---
+
+¬∃ n ∈ S : P(n) ⟺ ∀ n ∈ S : ¬P(n)
+
+¬∀ n ∈ S : P(n) ⟺ ∃ n ∈ S : ¬P(n)
+
+---
+
+∀ w ∈ Weapons : ∃ i ∈ Inputs : w는 i에 연결됨
+모든 무기마다, 그 무기를 위한 Inputs가 하나 있다
+
+∃ i ∈ Inputs : ∀ w ∈ Weapons : w는 i에 연결됨
+하나의 Inputs가 있어서, 모든 무기가 그것에 연결된다
+
+---
+
+P 혼자
+술어 기호(predicate symbol)
+"짝수다", "Inputs를 가진다"
+
+변수 하나를 받으면 단항 술어(unary predicate)
+
+둘을 받으면 이항(binary)
+Connected(w, i)
+
+단항 술어는 "성질(property)", 
+이항 이상은 "관계(relation)"라고도 불러
+
+---
+
+P(n) — 술어에 인자를 채운 것
+
+원자식(atomic formula)
+더 이상 쪼갤 수 없는 가장 작은 논리식
+
+---
+
+P(n)의 n이 자유 변수(free variable) 인 상태 — 아무것도 묶어 주지 않은 상태
+P(n)은 열린 식(open formula)
+
+열린 식은 진리값이 없어
+
+"n은 짝수다"는 n이 뭔지 모르면 참도 거짓도 아니잖아
+n에 뭔가를 꽂아야 비로소 참/거짓이 생겨
+
+---
+
+∀ n ∈ S : P(n)
+
+이것도 논리식(formula)
+
+양화된 식(quantified formula)
+∀니까 전칭 양화식(universally quantified formula)
+
+---
+
+∀ n이 n을 묶었어
+자유 변수가 없는 식을 닫힌 식(closed formula) 
+또는 문장(sentence) 이라고 불러
+
+진리값을 가져
+
+---
+
+"S가 어떤 집합이고 P가 어떤 성질인지"를 정해 주는 것
+이걸 정해 주는 걸 구조(structure) 또는 모델(model)
+
+같은 문장 ∀ n ∈ S : P(n)이라도 
+
+S = {2,4,6}이면 참
+S = {2,4,7}이면 거짓
+
+---
+
+기호 자체는 구문(syntax) 이고,
+참/거짓은 의미(semantics)
+
+---
+
+∀ n ∈ S : P(n)
+
+∀ — 양화사(quantifier)
+n — 변수(variable), 이 자리에서는 ∀에 의해 속박된(bound) 변수
+∀ n — 양화사 접두부(quantifier prefix) 또는 바인더(binder). n을 잡아 묶는 부분.
+∈ S — 제한(restriction) 또는 범위 제한(bounded quantification). (n ∈ S) → …의 줄임.
+P(n) — 양화사의 작용역(scope). 이 양화사가 묶는 변수가 효력을 갖는 범위
+P — 술어 기호
+P(n) — 원자식
+전체 — 전칭 양화 문장(universally quantified sentence)
+
+---
+
+(기저) 원자식은 논리식이다. — P(n), Q(a, b) …
+(귀납 1) φ, ψ가 논리식이면 ¬φ, φ ∧ ψ, φ ∨ ψ, φ → ψ 도 논리식이다.
+(귀납 2) φ가 논리식이고 x가 변수면 ∀x φ, ∃x φ 도 논리식이다.
+(닫힘) 이것으로만 만들어진 것이 논리식이다.
+
+---
+
+0차 — 명제 논리(propositional logic)
+1차 — 양화 대상은 원소(individual)
+2차 — 술어 위로 양화
+
+"Weapon들이 공유하는 어떤 성질이 있다"
+∃ P : ∀ w ∈ Weapons : P(w)
+
+---
+
+2차의 핵심은 "성질 자체를 대상으로 말하기"
+
+1차는 Func<Node, bool>을 호출만 하는 세계고
+2차는 Func<Node, bool>을 인자로 받고 그 위로 루프를 도는 세계야
+
+고차 함수
+
+---
+
+다중 정렬 1차 논리(many-sorted FOL)
+n ∈ Nodes, w ∈ Weapons 처럼 변수마다 종류가 있는 것
+
+---
+
+양상 논리(modal logic)
+"필연적으로 □"
+"가능하게 ◇"를 추가
+
+"모든 허용된 씬에서 □(상류에 Inputs)"
+"◇(없을 수도)"
+
+---
+
+시제 논리(temporal logic)
+
+"언젠가 ◇"
+"항상 □"
+
+---
+
+중첩 if를 논리로 옮기면
+
+A → (B → (C → body))
+
+그리고 이건 다음과 같아
+
+(A ∧ B ∧ C) → body
+
+exportation
+currying
+인자 셋을 받는 함수 하나와, 
+인자 하나씩 받는 함수를 세 겹 쌓은 것이 같다
+
+---
+
+논의 영역(universe of discourse)
+
+---
+
+조건이 셋이면 진리값 조합은 2³ = 8
+
+그런데 트리의 잎은 넷이고, 그림의 칸도 넷
+
+---
+
+중첩 if
+
+여덟 세계를 다 구분하지 않고, 
+질문의 순서를 정해서 넷으로 접어
+
+---
+
+트리가 균형 잡힌 모양이 아니라 한쪽으로 늘어진 빗 모양(comb)
+
+---
+
+중첩 if
+
+교집합 자체는 순서가 없는데 (A ∩ B = B ∩ A)
+코드는 순서가 있어
+
+B를 묻는 비용이 크거나, A가 거짓일 때 B를 묻는 게 위험할 때
+(null 체크 먼저, 역참조 나중)
+
+---
+
+같은 트리를 펴는 방법
+
+if (A) {
+  if (B) {
+    if (C) {
+      body
+    }
+  }
+}
+
+if (!A) return;
+if (!B) return;
+if (!C) return;
+body
+
+가드 절(guard clause)
+
+---
+
+"조건을 하나씩 물어서 갈라지는 트리"는 결정 트리(decision tree)
+
+한쪽으로만 깊어지는 모양은 빗(comb) 또는 애벌레(caterpillar) 트리
+
+---
+
+영역을 반복해서 쪼개 넓이로 보여 주는 그림은 트리맵(treemap)
+
+도달 빈도
+
+---
+
+상태 공간(state space)
+그 지점에서 프로그램이 처해 있을 수 있는 모든 상태의 집합
+
+변수 값, 씬 모양, 시간, 전부 합친 것
+
+---
+
+분할(partition)
+
+조각들이 서로 겹치지 않고, 합치면 전체가 되는 것
+
+---
+
+if(cond)
+cond인 상태와 ¬cond인 상태
+
+겹치지 않고(한 상태가 둘 다일 수 없음),
+합치면 전체(제3의 경우 없음, 배중률)
+
+if는 2-분할이고, 
+switch는 k-분할
+
+---
+
+술어 하나는 상태 공간을 둘로 가르는 것이고, 
+
+둘로 가르는 것은 "같은 쪽에 있다"는 
+동치 관계를 하나 만드는 거야. 
+
+그러니까 if(cond)는 
+
+"cond 관점에서는 이 상태들이 전부 같다"는 선언이야.
+
+A인 상태들은 A 블록 안에서 서로 구분되지 않아. 
+
+그게 if가 하는 추상화야
+수많은 상태를 두 덩어리로 뭉개는 것.
+
+---
+
+refinement
+
+바깥 if가 U를 {A, ¬A}로 가르고,
+안쪽 if는 U가 아니라 A를 {A∩B, A∩¬B}로 갈라
+
+안쪽 if에게 세상은 이미 A야
+
+---
+
+안으로 들어갈수록 세상이 작아진다
+
+---
+
+TypeScript
+narrowing
+
+---
+
+한 조각만 계속 세분하면 빗(comb)
+모든 조각을 같은 술어로 세분하면 균형 트리
+
+---
+
+중첩이 프랙탈처럼 무한히 갈 수 있는 건 문법 층에서고, 
+의미 층에서는 공간이 바닥나.
+
+---
+
+그림에서는 포함. 작은 칸이 큰 칸 안에 있다.
+코드에서는 들여쓰기. 중괄호 깊이.
+트리에서는 깊이. 루트에서 몇 칸 내려왔나.
+
+트리라는 자료구조가 원래 가진 세 표기법
+
+---
+
+파일 시스템도 
+
+폴더 상자(포함)로, 
+들여쓴 목록(코드)으로, 
+노드-링크 그림(트리)으로 그려
+
+Unity 하이어라키 창은 들여쓰기 표기고
+씬 안의 실제 Transform 관계는 포함 표기야
+
+---
+
+세 투영이 보존하는 것이 달라
+
+그림은 넓이를 보존해
+트리는 구조를 보존해, 대신 넓이를 잃어
+코드는 실행 순서를 보존해, 대신 거짓 쪽 조각(X)을 침묵시켜
+
+---
+
+코드가 가장 많이 말해
+
+넓이만 → 구조 → 구조 + 평가 순서 + 각 잎에서 무엇을 할지(body).
+
+---
+
+공간 분할: BSP 트리, k-d 트리, 쿼드트리
+물리와 렌더링 컬링이 이걸 써
+
+---
+
+조각이 가능 세계
+
+---
+
+조건들이 독립인가
+
+A가 거짓일 때 B를 묻는 게 의미 있나?
+
+---
+
+"상류에 Inputs가 있나"와 "그게 활성인가"는 빗이어야 하고
+"Inputs가 있나"와 "Muzzle이 있나"는 곱이어도 돼
+
+---
+
+isomorphic
+"세 표현은 동형이다"라고 하면 "서로 손실 없이 바꿀 수 있다"는 뜻
+
+projection
+손실이 있으니까, "그림은 트리의 투영(projection) 이다"
+
+---
+---
+---
+
+Hierarchy는 조상까지 곱한 lossyScale
+Local은 자기 localScale만.
+
+Shape은 적용하는 범위가 달라
+Hierarchy와 같은 scale을 읽되, 
+파티클 크기에는 안 입히고 
+방출 형태(Shape 모듈의 시작 위치)에만 입혀
+
+source(자기 vs 조상) × scope(전부 vs 형태만)
+
+---
+
+scale의 참조 프레임(reference frame) 이 무엇인가
+자기 좌표계인가, 부모를 다 곱한 월드 좌표계인가
+
+---
+
+Particle System 인스펙터 전체를 관통하는 질문
+이 값을 자기 transform에서 읽나, 조상에서 읽나, 
+시간에서 읽나, 이동에서 읽나, 커브에서 읽나
+
+---
+
+모듈 하나하나가 "어떤 입력(시간, 수명, 속도, 조상 scale, 이동 거리)을 읽어서
+파티클의 어떤 속성에 쓸 것인가"를 정하는 함수
+
+---
+
+프레임 선택기
+
+position, scale, 생성량 각각에 대해 "어느 프레임을 기준으로 할 것인가"
+
+---
+
+transform.position이라는 한 칸을 
+
+물리가 쓸 거냐, 
+애니메이션이 쓸 거냐, 
+코드가 쓸 거냐, 
+서버가 쓸 거냐
+
+isKinematic, 
+Apply Root Motion, 
+updatePosition,
+Network authority
+
+---
+
+Simulation Space: Local / World / Custom
+Scaling Mode: Local / Hierarchy / (Shape)
+Canvas: Overlay / Camera / World
+Reflection Probe: Realtime / Baked / Custom
+
+---
+
+GetComponent(자기)
+GetComponentInParent(계층)
+싱글톤·Find(세계)
+직렬화 필드(명시적 참조)
+
+---
+
+Particle System의 Custom Simulation Space는 
+"Transform 하나를 끌어다 놓는 것"
+
+"Inputs를 인스펙터에서 끌어다 놓는 것"
+
+---
+
+좌표계·시계는 참조 프레임(reference frame)
+누가 쓰느냐는 권한(authority) 또는 단일 진실 공급원(single source of truth)
+어느 층에서 오느냐는 출처(provenance)
+
+---
+
+네트워크
+이 transform의 authority가 누구냐
+
+---
+
+노드마다 저장된 건 부모에 대한 오프셋
+(localPosition, localRotation, localScale)
+
+월드 위치는 저장 안 돼
+계산돼
+
+루트에서 n까지의 경로를 따라 오프셋을 곱한 것
+
+---
+
+path(self → root). GetComponentInParent가 걸어 올라가는 그 길을
+Transform은 매 프레임 행렬 곱으로 걸어 내려와
+
+---
+
+Transform 계층
+
+부모-자식 관계는 "n은 parent(n)과 같이 움직인다"는 선언
+계층 전체는 그 선언들의 집합이야
+
+---
+
+transform.position = x 라고 월드 값을 쓰면
+Unity는 부모의 역행렬을 곱해서 로컬을 고쳐 써
+
+진실의 원천은 로컬이고 월드는 뷰야
+
+---
+
+Pistol의 위치·회전을 어디서 읽을 것인가.
+
+계층(Hierarchy) — Camera 밑에 둔다. 공짜고 견고하고, 소유 관계가 희생된다.
+
+---
+
+명시적 참조(Custom) + 따라가기 스크립트, 
+혹은 Unity의 Parent Constraint 컴포넌트. 
+소유는 Player에 두고, 
+운동 출처는 Camera를 끌어다 놓는다. 
+
+---
+
+Camera는 Player의 자식이야. 위치는 Player와 같이 움직여. 
+
+그런데 회전(피치)은 따로 움직여야 해
+몸은 안 숙이고 고개만 숙이니까. 
+
+위치는 같이, 회전은 따로. 
+
+계층은 
+채널을 나눠서 말할 수 없어. 
+TRS 전부가 묶여. 
+
+그래서 피치는 스크립트가 로컬 회전을 덮어써. 
+
+계층이 묶은 걸 코드가 한 채널만 풀어 주는 거야
+
+---
+
+트리는 노드마다 부모가 하나야. 
+즉 "n은 정확히 하나와 같이 움직인다"를 강제해
+
+그래서 계층은 근사야. 
+가장 지배적인 결합 하나를 부모로 고르고, 
+나머지는 constraint나 IK로 덧붙여
+
+Unity가 Parent Constraint에 여러 소스와 가중치를 두는 게 그 증거야
+그건 트리가 아니라 가중 DAG
+
+계층이 "이 노드는 부모가 하나"라고 말하는 자리에서 
+constraint가 "사실은 둘인데 0.7 : 0.3"이라고 정정해
+
+---
+
+∀ (p, c) ∈ Edges : X(p) → X(c)
+
+간선마다 함의가 하나씩 걸려 있는 것
+그리고 이게 트리를 따라 전이되니까 X(root) → X(모든 노드)가 돼
+
+트리는 이 함의들의 묶음을 그림으로 그린 것이야
+
+---
+
+X가 양이고, 자식의 값 = 부모의 값 ∘ 자기 오프셋.
+
+Transform: 월드 TRS = 부모 월드 × 로컬
+스켈레톤 본: 같은 것. 부모 뼈가 돌면 자식 뼈가 돈다
+
+CanvasGroup: 자식의 실효 alpha = 부모 alpha × 자기 alpha
+
+AudioMixer 그룹: 자식 그룹의 들리는 볼륨 = 부모 볼륨 × 자기 볼륨
+
+Timeline / Playable: 부모의 time scale이 자식 재생 속도에 곱해짐
+
+확률 트리: 잎의 확률 = 경로 위 조건부 확률의 곱
+
+---
+
+연산이 곱이고, 루트까지의 경로를 따라 접는다
+
+---
+
+상태가 AND된다
+
+X가 불리언 상태이고, 자식의 실효 상태 = 조상 전부 ∧ 자기.
+
+GameObject active: activeInHierarchy(c) = activeSelf(c) ∧ activeInHierarchy(parent)
+
+CanvasGroup interactable / blocksRaycasts
+
+마스크(Mask, RectMask2D): 부모가 가리면 자식도 가려짐
+
+컬링: 쿼드트리·BVH에서 부모 셀이 안 보이면 자식은 검사도 안 함
+
+메뉴: 부모 메뉴가 닫히면 서브메뉴도 닫힘
+
+---
+
+사건이 방송된다 — "부모가 발사되면 자식도
+
+Particle System: Play / Stop / Pause가 자식 시스템에 전파 (withChildren)
+
+Destroy: 부모가 파괴되면 자식도
+
+CancellationToken: 부모 토큰 취소 → 연결된 자식 토큰 취소
+
+구조적 동시성(structured concurrency): 부모 태스크 취소 → 자식 태스크 취소
+
+OS 프로세스 그룹: 세션 리더 종료 → SIGHUP이 자식들에게
+
+중첩 트랜잭션: 부모 롤백 → 자식 롤백
+
+씬 언로드 → 루트 오브젝트 전부 파괴
+
+React: 부모 언마운트 → 자식 언마운트
+
+---
+
+소유권 트리
+자식의 수명 ⊆ 부모의 수명
+
+---
+
+성질이 상속된다
+
+분류학(is-a): 포유류의 성질은 개에게도. ∀ x ∈ Dog : Mammal(x)
+
+클래스 상속: 부모 클래스의 메서드를 자식이 가짐
+
+CSS 상속 속성: color, font는 내려감 (margin은 안 내려감 — 속성마다 다름)
+
+---
+
+이 분류엔 거의 항상 덮어쓰기(override) 가 따라와
+
+CSS의 cascade, 프리팹 오버라이드
+전파에 정지 규칙이 있는 변종이야
+
+---
+
+전파 방향이 반대인 것들 — "자식이 X이면 부모도"
+위로 흐르는 트리
+
+예외: 자식 프레임이 던지면 부모 프레임이 받음
+
+DOM 이벤트 버블링: 자식에서 발생한 클릭이 부모로 올라감
+
+복합 콜라이더: 자식 콜라이더에 가해진 힘이 부모 Rigidbody로
+
+구조적 동시성의 완료: 부모는 자식이 다 끝나야 끝남
+
+---
+
+전파하지 않는 트리
+
+Unity Layer, Tag, Static 플래그: 부모를 바꿔도 자식은 안 바뀜
+
+CSS의 margin, border: 안 내려감
+
+---
+
+Unity의 한 계층에는 전파 규칙이 여러 개 동시에 걸려 있어
+
+움직임
+활성
+파괴
+GetComponentInParent의 스코프
+
+그리고 Layer는 안 걸려 있음
+
+---
+
+양(합성), 상태(AND), 사건(방송), 술어(상속 + 덮어쓰기)
+아래, 위, 양쪽.
+
+---
+
+간선을 따라 흐르는 X는 무엇인가 (양 / 상태 / 사건 / 술어)
+어느 방향으로 흐르는가
+
+---
+
+한 트리에 여러 (X, 방향) 쌍이 겹쳐 있으면, 
+그 트리는 사실 여러 트리를 한 그림에 포갠 것이야
+
+---
+
+상태 AND의 대우를 생각해 봐. 
+
+"부모가 꺼지면 자식도 꺼진다"의 대우는 
+"자식이 켜져 있으면 부모도 켜져 있다"
+
+아래로 흐르는 규칙은 
+전부 위로 읽히는 제약을 하나씩 갖고 있어
+
+---
+
+propagation
+inheritance
+덮어쓰기 규칙이 붙으면 캐스케이드(cascade)
+
+---
+
+같은 "누군가 나에게 넘겨준다"인데, 누가, 언제 넘겨주느냐가 달라
+
+(1) Initialize Inject → 명시적 참조, 런타임에 코드가 넘겨줌
+(2) SerializeField → 명시적 참조, 에디트 타임에 사람이 끌어다 놓음
+
+---
+
+검색
+
+(3-a) Awake에서 자신의 계층에서 → 계층
+(3-b) Awake에서 Scene 전체에서 → 세계
+
+---
+
+셰이더는 입력 슬롯이 있는 프로그램이고
+Material은 그 슬롯들을 채운 기록이야
+
+inputs (parameters) for a shader
+
+---
+
+Emission Map이라는 참조 슬롯은 어떻게 무엇에 연결되나
+
+Material 에셋에 텍스처를 끌어다 놓음 → SerializeField. 사람, 에디트 타임
+코드에서 MaterialPropertyBlock으로 꽂음 → Inject. 코드, 런타임
+Shader.SetGlobalTexture로 전역에 둠 → 세계. 셰이더가 "어딘가 있는" 변수를 읽음
+
+---
+
+Unity는 이 셋 사이에 우선순위를 둬
+
+PropertyBlock이 Material을 덮고, 
+Material이 전역을 덮어
+
+"어느 층이 이기나"의 캐스케이드
+
+---
+
+Post Processing이 Camera에도 있고 Global Volume에도
+
+Camera의 체크박스는 "이 카메라가 참여하는가",
+Volume은 "효과가 무엇인가"
+
+정의는 하나고 참여자는 여럿
+
+정의는 공유되는 쪽(Volume)에, 참여 여부는 각자 쪽(Camera)에
+
+---
+
+Camera.postProcessing 
+∧ Camera.HDR 
+∧ Volume이 이 카메라 레이어를 덮음 
+∧ Profile에 Bloom 오버라이드 있음 
+∧ 그 오버라이드가 켜짐 
+∧ intensity > 0 
+∧ Material에 Emission 켜짐 
+∧ Emission 색이 threshold보다 밝음
+
+여덟 개 조건이 카메라, 볼륨, 프로파일, 머티리얼 네 오브젝트에 걸쳐 있어
+한 코드 블록이 아니라 씬 전체에 펼쳐진 빗
+
+한 화면에 보일 조건들이 인스펙터 네 개에 흩어져 있어
+
+---
+
+하나의 동작은 여러 오브젝트의 설정이 전부 맞아야 일어난다
+
+---
+
+SerializeField로 받되 비어 있으면 Awake에서 찾는다
+캐스케이드
+
+관용인지 애매함인지
+
+---
+
+흩어진 ∧를 한눈에 보이게 하는 도구가 있다면
+
+---
+
+dependency injection
+
+생성자로 받으면 생성자 주입(constructor injection),
+Initialize 같은 메서드로 받으면 메서드 주입(method injection)
+
+---
+
+service locator 패턴
+Awake에서 Scene에서 찾아서
+
+DI로 받을까 로케이터로 찾을까
+
+---
+
+Controller는 그래프(상태 + 전이), 
+Clip은 곡선 뭉치(시간 → 값), 
+Animator는 그 그래프를 실행하는 기계
+
+---
+
+"다 완료되기 전에 다시 호출"은 재트리거(retrigger) 라고 해
+그때 무엇이 일어나는지를 retrigger semantics 이라고 부르면
+
+이 과정의 재트리거 의미론은 재시작인가 무시인가
+
+---
+
+위치 + 방향 = 포즈(pose).
+
+at where"의 타입은 (Vector3, Quaternion)
+
+Raycast는 point와 normal로 그 둘을 다 줘
+
+---
+
+collider
+
+이건 "어디에"가 아니라 "무엇에"
+
+맞은 게 금속이냐 나무냐 → 어느 파티클 프리팹을 쓸 거냐
+
+---
+
+월드 공간 ParticleSystem 하나를 두고
+Emit
+
+Simulation Space = World인 시스템 하나로 모든 착탄을 처리
+
+---
+
+Raycast
+즉시 판정하는 방식은 히트스캔(hitscan)
+
+날아가는 총알은 발사체(projectile)
+
+---
+
+렌더러는 Mesh를 보고, 물리는 Collider를 봐
+둘 다 "이 물체의 모양"인데, 하위 시스템마다 자기 사본을 따로 들고 있어
+
+렌더링용 모양, 물리용 모양
+
+둘은 원래부터 같은 데이터가 아니야
+
+---
+
+Animation Clip
+
+시간 → (프로퍼티 경로 → 값) 인 곡선 뭉치
+
+Pistol/Model : localRotation.x 같은 경로에 값을 써
+
+---
+
+Clip은 "시각"이니 "물리"니 하는 걸 몰라. 경로만 알아
+
+---
+
+Mesh는 움직이는데 Collider는 안 움직인다
+
+Clip의 쓰기 집합에 Mesh 쪽 경로는 있고
+Collider 쪽 경로는 없다
+
+---
+
+Clip이 Transform을 움직이고, Mesh와 Collider가 둘 다 그 Transform 아래 있으면
+하나를 쓰는데 둘이 따라와
+
+계층이 공유 변수 역할을 하는 거야
+
+---
+
+Clip은 직렬화된 프로퍼티면 뭐든 애니메이션할 수 있어
+
+---
+
+"시각 사본만 바뀌고 Transform은 안 바뀐" 경우
+
+스킨드 메시: 뼈가 움직이고 정점이 움직여
+블렌드 셰이프: Transform은 가만히 있고 정점만 변형
+셰이더 변위: GPU에서 흔들림 — CPU 쪽엔 아무 변화도 없음
+
+---
+
+뼈마다 Collider를 붙여서(래그돌) 뼈
+
+---
+
+공통 조상으로 묶어도 하나가 더 남아
+
+Animator는 기본적으로 Update에서 쓰고, 
+물리는 FixedUpdate에서 읽어
+
+같은 Transform인데 읽는 시계가 달라
+
+애니메이션이 문을 움직이면 Collider는 한 물리 스텝 늦게 거기 있어
+빠른 물체는 이 틈으로 빠져나가
+
+Animator의 Update Mode = Animate Physics 가 이 틈을 막는 드롭다운이야
+
+애니메이션 쓰기를 FixedUpdate로 옮겨서
+물리가 읽기 직전에 쓰게 해
+
+---
+
+Animation이 Transform을 쓰는데 
+
+Rigidbody가 비-kinematic이면 
+
+물리도 같은 Transform을 써서 싸워. 
+
+애니메이션이 움직이는 Collider는 kinematic이어야
+
+이 몸의 위치는 애니메이션이 소유한다
+
+---
+
+Mesh / Collider만이 아니야. 
+같은 물체에 대해 NavMesh용 모양, 오디오 차폐용 모양, 그림자용 LOD, 네트워크 복제본
+
+하위 시스템마다 사본이 하나씩이야
+
+사본이 둘 이상인 순간 "이게 일치하나"라는 세금이 생겨
+
+---
+
+유도(하나에서 나머지를 계산 — 정확하지만 비쌈)
+
+공유 변수(전부 같은 Transform을 보게 — Transform으로 표현되는 변화에만 통함)
+
+명시적 동기화(코드나 Clip이 둘 다에 씀 — 유연하지만 누락이 조용함)
+
+---
+
+시각 모양을 단순화한 사본은 충돌 근사체(collision proxy) 라고 불러
+
+근사체가 시각 모양을 허용 오차 안에서 따라가게 한다
+완전히 같을 필요는 없다
+
+---
+---
+---
+
+text mesh pro
+
+글자를 "그림"이 아니라 "거리 함수"로 저장하기 시작했다
+
+---
+
+Unity Text(UGUI Text)는 글꼴을 비트맵으로 다뤘어
+
+글자 하나를 특정 크기로 래스터화해서 — 픽셀로 구워서
+아틀라스 텍스처에 넣고
+그 조각을 화면에
+
+키우면 흐려져
+텍셀 하나가 화면 픽셀 여러 개를 덮으니까 쌍선형 보간으로 뭉개져
+
+크기마다 새로 구워야 해
+
+---
+
+SDF — 모양 대신 모양까지의 거리를 저장한다
+Signed Distance Field
+
+아틀라스의 텍셀 하나에 "이 지점에서 글자 윤곽선까지의 거리"를 넣어
+
+---
+
+거리는 보간이 잘 되기 때문
+거리 필드를 쌍선형 보간하면 "거리"가 부드럽게 이어지고
+
+---
+
+외곽선: 0.5가 아니라 0.4에서 자르면 글자가 굵어지고, 
+0.4와 0.5 사이만 색칠하면 외곽선
+
+글로우: 거리에 따라 알파를 감쇠시키면 끝
+
+부드러운 그림자: 거리 필드를 살짝 밀어서 한 번 더 그리기
+
+비트맵에서는 외곽선 하나 넣으려면 아틀라스를 다시 굽거나 
+여러 번 그려야 했는데, 
+SDF에서는 전부 셰이더 안의 임계값과 산수야.
+
+---
+
+Valve의 2007년 논문
+Chris Green
+"Improved Alpha-Tested Magnification for Vector Textures and Special Effects"
+Team Fortress 2의 데칼과 UI를 위해 만든 거
+
+TMP(Stephan Bouchard, 2014년경 에셋 스토어)는 그 기법을 가져다 텍스트 시스템
+Unity가 2017년에 인수해서 기본 텍스트가
+
+---
+
+SDF를 텍스트 전체 파이프라인에 끝까지 적용한 것
+
+레이아웃 엔진
+커닝, 합자, 줄바꿈, 정렬
+
+리치 텍스트 태그
+<b>, <color>, <sprite> 같은 인라인 마크업
+
+문자 단위 메시 접근
+글자마다 정점을 만질 수 있어서 글자 흔들기·튀기기 애니메이션이 가능
+
+머티리얼 프리셋
+같은 폰트에 다른 효과를 에셋으로
+
+---
+
+대가
+
+거리 필드를 보간하면 날카로운 꼭짓점이 살짝 깎여
+아주 작은 글자는 오히려 비트맵 힌팅보다 부옇게 보일 수 있어
+
+거리 필드는 픽셀 격자에 맞추는 힌팅을 못 하니까
+또 아틀라스 해상도가 낮으면 가는 획이 사라져
+
+---
+
+SDF는 그 사본 중 하나를 쿼리 가능한 함수로 바꾼 거야
+
+그래서 같은 SDF가 폰트 말고도 
+물리 콜라이더(SDF collider), 레이마칭 렌더링, 메시 부울 연산에 쓰여
+
+표현을 "모양"에서 "모양까지의 거리"로 바꾸면
+확대도 효과도 충돌 판정도 전부 같은 함수 하나를 읽는 일이 돼
+
+---
+
+서체 / 글꼴 (typeface) — 디자인
+"Noto Sans"
+
+폰트 (font) — 그 디자인의 특정 파일·굵기·크기 인스턴스
+"Noto Sans Bold 14pt"
+
+서체 하나, 폰트 여러 개가 원래 관계
+
+---
+
+font family
+Regular, Bold, Italic 등을 묶은 것
+
+---
+
+굵기 (weight)
+
+Thin(100)~Black(900)
+
+---
+
+style
+
+Italic, Oblique
+이탤릭은 따로 그린 것, 오블리크는 기울인 것
+
+---
+
+variable font
+굵기·너비를 연속값 축으로 가진 단일 파일
+
+---
+
+문자 (character) vs 글리프 (glyph)
+
+문자는 추상적 기호(U+0041 'A'), 글리프는 그걸 그린 모양
+
+한 문자에 여러 글리프(이탤릭 a)
+여러 문자에 한 글리프(합자)
+
+---
+
+code point
+유니코드 번호
+
+글꼴은 코드 포인트 → 글리프 매핑표(cmap)를 가짐
+
+---
+
+합자 (ligature)
+
+"fi"처럼 두 문자를 한 글리프로
+아랍 문자엔 필수
+
+---
+
+outline font
+베지어 곡선으로 저장
+TTF·OTF는 윤곽선
+
+---
+
+자간 (tracking, letter-spacing)
+
+커닝 (kerning)
+특정 쌍만. 글꼴 파일 안에 쌍 목록(kern 테이블 또는 GPOS)이 들어 있고
+렌더러가 그걸 읽어 적용. 
+"AV"를 가까이, "ll"은 그대로
+
+---
+
+GameObject의 상태 공간은 컴포넌트 상태 공간들의 곱이야
+
+A × B × C × A
+
+---
+
+두 단계 레이아웃이야
+
+컴포넌트 순서(데이터) × 필드 순서(코드)
+
+HTML로 치면 바깥은 문서, 안쪽은 컴포넌트 템플릿.
+
+---
+
+중복인 순간 "어느 것"이라는 질문이 생기고
+그 답을 인덱스에 맡기면 깨진다는 것
+
+두 A가 다른 역할이면 역할 이름이 어딘가 있어야 해
+
+---
+
+메모리에서 GameObject는 
+힙 객체 넷을 가리키는 목록이지 
+하나의 큰 구조체가 아니야
+
+직렬화 레이아웃(serialized layout)
+
+Inspector는 하나의 큰 레코드처럼 그려. 
+필드들이 한 열에 쭉
+
+---
+
+Unity의 씬·프리팹 YAML은 메모리 구조를 그대로 옮겨
+
+컴포넌트마다 별도, GameObject는 참조 목록
+
+---
+
+메모리 쪽(힙에 흩어진 독립 객체 + 배열이 참조)
+
+GameObject → [ptr, ptr, ptr, ptr]
+각 컴포넌트 → GameObject 역참조
+
+---
+
+YAML — 같은 그래프, 포인터를 ID로 바꾼 것
+
+--- !u!1 &100
+GameObject:
+  m_Name: Googoo
+  m_Component:
+  - component: {fileID: 200}
+  - component: {fileID: 300}
+  - component: {fileID: 400}
+  - component: {fileID: 500}
+--- !u!4 &200
+Transform:
+  m_GameObject: {fileID: 100}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+--- !u!114 &300
+MonoBehaviour:
+  m_GameObject: {fileID: 100}
+  m_Script: {fileID: 11500000, guid: abc...}
+  someField: 3
+--- !u!114 &400
+MonoBehaviour:
+  m_GameObject: {fileID: 100}
+  ...
+
+---
+
+---로 갈라진 각 덩어리가 독립 문서야
+
+---
+
+프리팹은 루트 하나짜리 YAML 파일이고, 씬은 루트 여럿
+
+---
+
+파일 경계를 넘는 참조는 ID가 두 단계가 돼
+
+guid(어느 파일, .meta에 있음)
+fileID(그 파일 안의 어느 문서)
+
+---
+
+메모리의 포인터 하나가 저장에서는 
+(파일, 문서) 쌍이 되는 거야.
+
+---
+
+같은 Googoo가:
+
+메모리에서는 포인터로 묶인 그래프
+파일에서는 ID로 묶인 같은 그래프 (프리팹 인스턴스면 베이스 + 차분)
+Inspector에서는 그 그래프의 투영
+네트워크에서는 베이스 + 차분, 그것도 선택된 필드만
+
+---
+
+직렬화가 하는 일은 결국 포인터를 무엇으로 바꾸느냐야
+
+파일에서는 ID로, 
+네트워크에서는 "너도 갖고 있는 베이스 + 거기서 벗어난 만큼"으로
+
+---
+
+%YAML 1.1                                        # ①
+%TAG !u! tag:unity3d.com,2011:                   # ②
+--- !u!1 &1847613320                             # ③
+GameObject:                                      # ④
+  m_ObjectHideFlags: 0                           # ⑤
+  m_CorrespondingSourceObject: {fileID: 0}       # ⑥
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6                           # ⑦
+  m_Component:                                   # ⑧
+  - component: {fileID: 1847613321}
+  - component: {fileID: 1847613322}
+  m_Layer: 0                                     # ⑨
+  m_Name: Googoo                                 # ⑩
+  m_TagString: Untagged
+  m_IsActive: 1                                  # ⑪
+--- !u!4 &1847613321                             # ⑫
+Transform:
+  m_GameObject: {fileID: 1847613320}             # ⑬
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}      # ⑭
+  m_LocalPosition: {x: 1.5, y: 0, z: -2}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children: []                                 # ⑮
+  m_Father: {fileID: 0}                          # ⑯
+--- !u!114 &1847613322                           # ⑰
+MonoBehaviour:
+  m_GameObject: {fileID: 1847613320}
+  m_Enabled: 1
+  m_Script: {fileID: 11500000, guid: 3f2a9c1e8b7d4a6f9e0c1b2a3d4e5f60, type: 3}   # ⑱
+  m_Name:                                        # ⑲
+  fireRate: 0.25                                 # ⑳
+  inputs: {fileID: 0}
+
+---
+
+%TAG !u! tag:unity3d.com,2011:
+지시자
+태그 핸들 정의
+
+앞으로 !u!라고 쓰면 tag:unity3d.com,2011:로 바꿔 읽어라
+
+---
+
+!u!1
+tag:unity3d.com,2011:1
+
+뜻은 "Unity 클래스 ID 1"
+1은 GameObject
+
+---
+
+&1847613320
+anchor
+
+이 노드에 이름을 붙여 두고 나중에 *이름(alias)으로 다시 쓴다
+그냥 오브젝트의 로컬 ID(fileID) 저장 칸으로 전용
+
+다른 문서에서 이 오브젝트를 가리킬 때 *1847613320이라고 쓰지 않고 
+{fileID: 1847613320}
+
+---
+
+옛날엔 &100000, &100002 같은 작은 순차 번호였는데
+2018 이후 64비트 난수
+
+병합 충돌을 줄이려고
+
+---
+
+--- !u!1 &1847613320                             
+GameObject:                 
+
+태그와 중복 정보
+사람이 읽으라고 있는 것에 가까워
+
+---
+
+m_CorrespondingSourceObject: {fileID: 0}
+
+{…}는 플로우 스타일(flow style) 매핑
+한 줄에 중괄호로 쓰는 것
+
+들여쓰기 방식은 블록 스타일
+
+둘은 같은 뜻이고 Unity는 짧은 구조체에 플로우를 써
+
+---
+
+m_CorrespondingSourceObject: {fileID: 0}
+
+fileID: 0 — 0은 null이야
+
+프리팹과의 연결을 적는 자리
+프리팹에 속하지 않은 오브젝트면 셋 다 0
+
+---
+
+m_Layer: 0
+
+레이어 인덱스. 이름이 아니라 번호. 
+
+레이어 이름은 ProjectSettings에 있고, 씬엔 번호만. 
+그래서 레이어 순서를 바꾸면 씬이 깨져.
+
+---
+
+--- !u!4 &1847613321                             # ⑫
+Transform:
+  m_GameObject: {fileID: 1847613320}             # ⑬
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}      # ⑭
+  m_LocalPosition: {x: 1.5, y: 0, z: -2}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children: []                                 # ⑮
+  m_Father: {fileID: 0}                          # ⑯
+
+---
+
+!u!4 = 클래스 ID 4 = Transform
+
+---
+
+m_Father
+m_Children: [] 
+
+계층이 Transform에 저장돼 있다는 것 — GameObject가 아니라
+
+---
+
+!u!114 = MonoBehaviour
+어떤 스크립트인지는 태그가 안 말해 줘
+
+m_Script: {fileID: 11500000, guid: 3f2a…, type: 3}
+
+세 필드짜리 파일 간 참조
+
+어느 에셋 파일인지
+
+---
+
+fileID: 11500000 — 그 에셋 안의 어느 오브젝트인지
+
+단일 오브젝트 에셋은 관례적으로 
+클래스 ID × 100000 을 메인 오브젝트의 fileID로 써
+
+
+---
+
+건축선 후퇴 (setback)
+
+선 위에서는 아무것도 못 짓습니다. 
+일은 선에서 물러난 자리, 내 땅의 가장자리에서 일어납니다
+
+---
+
+두 집이 벽 하나를 함께 쓰는 경우
+party wall (공유벽)
+
+벽은 하나이고, 한쪽이 혼자 헐 수 없고, 각자 자기 쪽에 칠을 합니다
+
+---
+
+함수의 서명이 호출자와 몸 사이에서 하는 역할이 이것이었습니다. 
+모양은 둘의 것, 각자의 면은 각자의 것
+
+---
