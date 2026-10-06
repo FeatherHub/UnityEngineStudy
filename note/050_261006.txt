@@ -1,0 +1,127 @@
+GameObject:
+  m_Layer: 0
+  m_Name: Environment
+  m_TagString: Untagged
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+
+---
+
+m_IsActive
+activeSelf (읽기), SetActive() (쓰기)
+
+m_Name
+name
+
+static
+isStatic
+
+m_TagString
+tag, CompareTag()
+
+m_Layer
+layer
+
+---
+
+직렬화 가능한 타입의 
+public 또는 [SerializeField] 필드
+
+Dictionary 같은 비직렬화 타입
+
+---
+
+Transform의 Rotation은 오일러각으로 보이지만 
+저장값은 쿼터니언(m_LocalRotation)입니다
+
+---
+
+public이어도 static, const, 프로퍼티
+
+[HideInInspector]는 안 보입니다
+
+---
+
+MeshFilter 없이 MeshRenderer가 쓰이는 경우
+
+레거시 3D Text 오브젝트는 Text Mesh와 Mesh Renderer만 있고 MeshFilter가 없습니다
+TextMesh가 글자 메시를 직접 만들어 MeshRenderer에 넘기기 때문이죠
+
+---
+
+반대 방향(MeshFilter만 있는 경우)은 실무에서 드뭅니다. 
+
+스크립트가 메시 데이터만 읽어서 쓰는 
+보이지 않는 오브젝트 정도예요.
+
+---
+
+MeshFilter는 무엇을(형상 데이터) 담당합니다.
+MeshRenderer는 어떻게(머티리얼, 그림자, 라이트 프로브, 정렬 순서)를 담당합니다.
+
+---
+
+이렇게 나누면 다른 컴포넌트들이 형상만 가져다 쓸 수 있습니다
+
+MeshCollider를 추가하면 같은 오브젝트의 MeshFilter 메시를 자동으로 가져가고
+프로시저럴 메시 스크립트는 MeshFilter만 건드리면 머티리얼 설정을 몰라도 됩니다
+
+---
+
+유니티 스스로도 SkinnedMeshRenderer에서는 메시를 렌더러 안에 직접 넣었습니다
+sharedMesh 필드
+
+같은 엔진 안에 두 설계가 공존합니다
+
+---
+
+언리얼의 StaticMeshComponent는 
+메시와 머티리얼을 한 컴포넌트에 담습니다
+
+---
+
+과도한 분리
+over-decomposition
+
+설계 트레이드오프
+
+---
+
+MeshFilter가 하는 일
+
+Mesh 에셋 하나를 참조해서 들고 있다 (sharedMesh).
+같은 GameObject의 MeshRenderer가 그 메시를 가져가 그린다.
+MeshCollider는 추가될 때 이 메시를 가져간다.
+mesh로 접근하면 공유 에셋 대신 이 오브젝트 전용 복사본을 만들어 준다.
+
+---
+
+안 하는 일
+
+메시의 형상을 바꾸지 않는다. 들어온 메시가 그대로 나간다.
+아무것도 걸러내지 않는다.
+
+---
+
+"렌더러 앞에서 메시를 공급하는 자리"가 따로 있고, 
+
+MeshFilter는 그 자리에 들어가는 여러 컴포넌트 중 하나입니다
+
+---
+
+[Mesh 에셋] → MeshFilter ─┬→ MeshRenderer (그리기)
+[텍스트]    → TextMesh   ──→ MeshRenderer
+
+---
+
+[Mesh 에셋] → MeshFilter ─┬→ MeshRenderer (그리기)
+                          └→ MeshCollider (충돌)
+
+MeshRenderer 앞 슬롯이라는 위치, 
+MeshCollider로도 갈라지는 구조
+
+---
+
+MeshSource, MeshProvider, MeshSlot
+
+---
