@@ -1,0 +1,323 @@
+launch request
+사용자가 아이콘을 누른 순간
+탭
+
+---
+
+Android가 준비하는 시간
+Baseline 측정에서 약 110 ms
+
+---
+
+process start
+영체제가 앱이 들어가 살 방(프로세스)을 만든 순간
+
+---
+
+Unity 엔진이 네이티브 코드로 스스로를 깨우는 시간
+Baseline
+프로세스 시작부터 0점까지 591 ms
+"엔진 바닥"
+
+---
+
+0점(time origin)
+우리가 쓰는 C# 코드가 가장 먼저 불릴 수 있는 순간인 
+SubsystemRegistration
+
+---
+
+실행 요청에서 0점까지
+launch_to_zero
+
+프로세스 시작에서 0점까지
+process_to_zero
+
+---
+
+cold start
+
+앱의 프로세스가 아예 없는 상태에서 처음부터 다 만드는 것
+보통 "앱 시작 시간"
+
+---
+
+warm start
+
+프로세스는 남아 있지만 화면(Activity)을 다시 만들어야 하는 경우
+
+---
+
+hot start
+
+이미 메모리에 다 있는 앱을 앞으로 불러오기만 하는 경우
+
+---
+
+프로세스는 차갑게 시작해도, 
+운영체제는 방금 읽은 파일 내용을 잠시 남겨 둬
+(디스크 캐시)
+
+그래서 두 번째 실행부터는 파일 읽기가 빨라져
+
+우리 스크립트가 첫 실행 하나를 
+"준비 실행(warmup run)"으로 빼고 
+요약에 넣지 않는 이유가 이거야
+
+---
+
+앱을 지우고 새로 깐 뒤 첫 실행은 
+이보다 더 차가워서 
+따로 "설치 후 첫 실행"으로 재
+
+---
+
+이 차이를 알아야 
+"우리 숫자는 디스크 캐시가 데워진 콜드 스타트"라고 말할 수 있어
+
+업데이트 직후 사용자가 처음 겪는 시간은 
+이보다 길 수 있다는 것도 예측할 수 있고
+
+---
+
+1 SubsystemRegistration(0점)
+
+2 AfterAssembliesLoaded(코드 묶음을 다 읽은 뒤)
+
+3 BeforeSplashScreen(Unity 로고 화면 직전, 우리는 그 화면을 끔)
+
+4 BeforeSceneLoad(첫 씬을 읽기 직전)
+5 첫 씬의 오브젝트가 깨어나고(Awake · OnEnable) 나서 AfterSceneLoad
+
+6 첫 Update
+7 첫 프레임 그리기 끝
+
+---
+
+BeforeSceneLoad · AfterSceneLoad
+
+FirstUpdate · FirstFrameEnd
+
+---
+
+Android는 앱의 창이 처음으로 그림 한 장을 그린 순간을 
+로그에 Displayed라고 남겨
+
+TT  ID
+Time To  Initial Display
+
+---
+
+TT  FD
+Time To  Full Display
+
+reportFullyDrawn을 부르면, Android가 로그에 Fully drawn을 남겨
+DiagnosticsReporting.CallReportFullyDrawn
+
+---
+
+프로세스 시작
+
+앞쪽에 Java 쪽 준비가 약 180 ms 들어 있어
+
+---
+
+launch_to_zero와 process_to_zero는 
+순서 위의 한 "순간"이 아니라 
+두 순간 사이의 "길이"야
+
+---
+
+시작점: 탭, 실행 의도 수신, 프로세스 시작 요청
+
+---
+
+우리 측정에는 사용자의 탭이 없어
+
+Measure-Startup.ps1은 화면을 누르지 않고, 
+adb로 am start 명령을 보내 
+실행 의도(intent)를 시스템에 직접 넣어
+
+---
+
+시스템이 실행 의도를 받은 순간
+
+Android는 TTFD를 이 순간부터 잰다
+
+---
+
+시스템이 이 앱의 process를 만들려는 순간
+
+Process.getStartRequestedElapsedRealtime()
+"zygote fork 직전"
+
+우리 launch_to_zero는 이 두 번째 순간을 0으로 잡아
+
+---
+
+프로세스 시작 요청에서 프로세스 시작까지
+
+Baseline에서 약 110 ms
+launch_to_zero 701.2 − process_to_zero 591.3
+
+---
+
+"프로세스 시작"은 Process.getStartElapsedRealtime()의 값
+
+프로세스는 시작됐지만 앱 코드는 아직 한 줄도 실행되지 않은 순간
+
+---
+
+시스템 스플래시 화면
+
+앱 프로세스는 아직 아무것도 그릴 수 없어서, 
+시스템이 앱 테마 색으로 대신 띄워 두는 거야
+
+시스템이 그린 시작 창(starting window)
+
+---
+
+프로세스가 시작되면 먼저 Java 쪽 준비가 돌아
+
+Android의 Application 객체와 Unity의 액티비티
+UnityPlayerGameActivity
+
+---
+
+Unity의 Java 플레이어 코드는 
+엔진이 그릴 표면(surface)을 준비해
+
+---
+
+그리고 그 위를 Splash Background Color로 칠한
+Android 뷰 하나로 덮어. 
+
+이게 Unity 정적 스플래시 뷰야
+
+---
+
+네이티브 엔진 초기
+
+그래픽 장치를 만든다(이 기기는 Vulkan).
+엔진 전역 설정(Global Managers)을 읽는다.
+IL2CPP 런타임을 준비한다
+
+---
+
+IL2CPP
+C# 코드를 C++로 바꿔 
+네이티브로 컴파일해 두는 방식
+
+---
+
+Baseline 약 406 ms
+
+---
+
+Displayed(TTID)
+
+액티비티 창이 처음 한 장 그려지면, 
+시스템은 시작 창을 걷고 앱 창으로 바꿔
+
+그 시각이 Displayed로 기록
+
+---
+
+중립색 하나를 시스템 시작 창, 정적 스플래시 뷰, 
+FirstFrameScene 카메라에 같이 써
+
+탭부터 IntroScene 첫 그림 직전까지 한 색이 끊김 없이 이어져
+
+---
+
+am
+Activity Manager
+
+Android에서 앱의 화면과 프로세스를 관리하는 시스템 서비스
+
+---
+
+adb
+
+Android Debug Bridge
+
+PC에서 기기에 명령을 보내는 도구
+
+---
+
+시점은 "기준점+지난 시간"으로 써
+
+---
+
+Android의 Java·Kotlin 코드는 컴파일된 뒤 
+
+DEX(Dalvik Executable) 형식으로 
+APK나 시스템 이미지에 들어가고, 
+
+ART(Android Runtime)가 실행해
+
+---
+
+Dalvik은 Android 4.4까지 쓰던 이전 런타임
+
+Android 5.0부터 ART로 바뀌었어
+
+---
+
+ActivityManagerService(AMS)
+앱 프로세스를 만들고 관리
+
+ActivityTaskManagerService(ATMS)
+어떤 화면(액티비티, Activity)을 열지 정하고, 
+실행 시간(Displayed, Fully drawn)을 기록해.
+
+WindowManagerService(WMS)
+화면에 올라가는 창들을 관리
+
+---
+
+SystemUI
+상태 표시줄 같은 시스템 화면을 그리는 상주 프로세스
+
+Android 12부터는 앱이 뜨기 전에 보이는 
+스플래시 창(starting window)도 여기서 그려
+
+---
+
+SurfaceFlinger
+상주 프로세스
+
+각 창이 자기 버퍼에 그려 둔 그림을 모아 실제 화면 한 장으로 합성해.
+
+이 글에서 "그린다"는 창이 자기 버퍼에 그리는 것이고
+"보인다"는 SurfaceFlinger가 합성해서 화면에 내놓은 것
+
+---
+
+PC의 adb를 불러
+adb는 기기 안의 adbd에 명령을 넘겨
+
+---
+
+앱 프로세스 안에 중요한 스레드가 셋
+
+tid
+
+Android UI 스레드(tid = pid)
+RenderThread
+Unity 게임 스레드
+
+---
+
+Android 문서는 UI 스레드를 main thread라고 부르고
+Unity 문서는 게임 스레드를 main thread라고 불러
+
+---
+
+com.android.server.am.ActivityManagerService
+
+system_server 프로세스 안에서 ART가 관리하는 
+Java 힙(객체들이 놓이는 메모리)에 있는
+객체 하나
+
+---
