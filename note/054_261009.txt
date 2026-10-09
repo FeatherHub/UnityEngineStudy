@@ -1,0 +1,544 @@
+
+새 개체가 기존 데이터 칸(데미지, 연사 속도 등)의 값만 다를 때만 성립
+
+샷건 산탄처럼 동작이 새로우면 데이터 추가로는 안 되고 코드가 늘어납니다
+
+---
+
+override가 많아진다면 "대부분 동일"이라는 전제가 깨지고 있다는 신호
+
+---
+
+공유 데이터 / 인스턴스 데이터
+
+Flyweight
+
+공유하는 쪽을 intrinsic state
+개체마다 다른 쪽을 extrinsic state
+
+---
+
+VS Code 설정 (기본 → 사용자 → 워크스페이스)
+git config (system → global → local)
+Unity의 프리팹 → 배리언트 → 씬 인스턴스
+C#의 virtual/override
+번역이 없으면 영어로 떨어지는 현지화 fallback
+
+---
+
+구조
+
+공통 기본값 위에 우선순위가 높은 층이 덮어쓴다
+
+---
+
+컴포지션, 전략 패턴
+
+발사 방식 자체를 SemiAuto, FullAuto, Burst 같은 부품으로 만들어 
+무기에 꽂습니다
+
+---
+
+"무엇이 일어나는 흐름"
+구멍 뚫기 (훅, 템플릿 메서드)
+
+흐름은 공통층이 쥐고
+
+예: CanFire()만 무기가 결정
+
+---
+
+엔진의 게임 루프가 뼈대를 쥐고 있고, 
+우리는 열려 있는 칸을 채울 뿐
+
+---
+
+public abstract class Weapon
+
+// 템플릿 메서드: virtual이 아니라서 순서는 누구도 못 바꿈
+public void TryShoot(bool pressedThisFrame, bool held)
+{
+    if (!WantsToFire(pressedThisFrame, held)) return;   // 훅
+    if (Time.time < nextFireTime) return;               // 고정
+
+    nextFireTime = Time.time + weaponSO.FireRate;       // 고정
+    muzzleFlash.Play();                                 // 고정
+    Fire();                                             // 훅
+    OnAfterFire();                                      // 훅
+}
+
+// 기본은 단발. 연사 무기만 override
+protected virtual bool WantsToFire(bool pressed, bool held) => pressed;
+
+// 기본은 레이캐스트 한 발. 산탄총만 override
+protected virtual void Fire() { /* Raycast + 피격 처리 */ }
+
+// 기본은 아무것도 안 함
+protected virtual void OnAfterFire() { }
+
+---
+
+composition over inheritance
+
+static utility class 안의 헬퍼
+
+다른 코드가 조립해서 쓰는 작은 단위
+primitive
+
+레이캐스트 한 발을 프리미티브로 만들어서, 
+산탄총은 그걸 여러 번 호출하게 하자
+
+---
+
+서로 바뀌는 이유가 다른 것들이 한 파일에 섞이는지가 중요합니다
+
+static 메서드 카탈로그는 프로그래머만 읽고 고를 수 있는 카탈로그입니다
+진짜 쓸모 있는 카탈로그는 인스펙터에서 끌어다 놓을 수 있는 카탈로그예요
+
+---
+
+static 헬퍼의 문제
+
+인자 폭발: 상태가 없어서 변형이 생길 때마다 인자가 늘어요
+상태를 못 담음: 점사 카운터, 차지 시간 같은 상태
+숨은 의존성과 교체 불가
+인터페이스가 없으니 테스트할 때 가짜로 바꿔 끼울 수도 없어요
+
+---
+
+[Serializable] 일반 클래스를 [SerializeField]로 들고 있을 때 생기는 문제
+
+필드 타입이 일반 기반 클래스면, 
+코드에서 PelletShot을 넣어도 기반 타입으로 잘려서 저장돼요
+pellets 같은 하위 필드가 사라집니다
+
+---
+
+[SerializeField]는 선언된 타입 그대로만 저장하기 때문
+
+이걸 풀려고 나온 게 [SerializeReference]입니다
+
+---
+
+Communication
+
+상대를 알고 직접 부르는 건
+dependency
+
+상대를 모른 채 알리기만 하는 건
+event 기반의 loose coupling
+
+---
+
+모듈 입도(granularity)
+
+method / class / SO / game object
+
+---
+
+Unity 직렬화의 두 세계
+
+UnityEngine.Object
+
+각자 정체성(GUID + fileID)이 있어서 다른 파일에서도 가리킬 수 있어요
+
+일반 C# 클래스
+
+정체성이 없어서 반드시 어떤 호스트 안에 들어가 살아요
+
+---
+
+[SerializeField]: 필드 자리에 값이 통째로 복사돼요. 진짜 인라인
+[SerializeReference]: 호스트 데이터 끝의 references 구역에 ID와 함께 저장
+참조이긴 하지만, 호스트 안에서만 통하는 내부 참조
+
+---
+
+SerializeReference는 호스트 밖으로 나가는 문을 열어 주지 않아요
+호스트 안에서 다형성, 공유, null 저장을 가능하게 해 줄 뿐
+
+---
+
+씬 파일 하나에 MonoBehaviour가 여럿 들어 있어도
+그들끼리는 관리 참조를 공유하지 못해요
+
+같은 객체를 두 호스트에 넣으면 저장할 때 별개 인스턴스로 갈라집니다
+
+---
+
+Information Expert 원칙
+
+---
+
+UnityEngine 클래스를 상속한 객체를 호스트 객체라고 부릅니다
+
+Unity가 독립적으로 저장하고 주소를 매길 수 있는 단위는 UnityEngine.Object
+
+일반 C# 객체는 혼자서는 저장될 수 없고, 반드시 어떤 호스트 안에 들어가 살아야 합니다
+
+그 집 역할을 하는 게 호스트
+
+---
+
+호스트 데이터 (= 호스트 객체의 직렬화 데이터)
+
+--- !u!114 &11400000    # 호스트 객체 하나의 시작. &뒤가 fileID
+MonoBehaviour:
+  m_Name: Shotgun
+  fireRate: 0.8
+  hitVFXPrefab: {fileID: 1234, guid: d4e5..., type: 3}   # 파일 간 참조
+  shotType:
+    rid: 1000                                            # 관리 참조 ID
+  references:
+    RefIds:
+    - rid: 1000
+      type: {class: PelletShot, ns: , asm: Assembly-CSharp}
+      data:
+        pellets: 8
+        spread: 0.1
+
+---
+
+{fileID, guid}
+다른 파일에 있는 호스트를 가리키는 참조
+주소 체계가 있으니 파일을 넘나들 수 있습니다
+
+---
+
+shotType: rid: 1000
+관리 참조
+
+실제 객체는 블록 끝 references 구역에
+
+---
+
+“GUID + fileID + rid” 같은 주소 형식이 없기 때문에
+바깥에서는 이 객체를 가리킬 방법이 없습니다
+
+---
+
+파일 하나 ≠ 호스트 하나
+
+씬이나 프리팹 파일에는 이런 --- !u! 블록이 여러 개 들어 있어요
+
+GameObject, 컴포넌트마다 블록이 하나씩이
+
+---
+
+GUID는 파일의 .meta에서
+fileID는 파일 안의 블록 번호에서 나와요
+
+어디서든 참조할 수 있습니다
+
+---
+
+같은 씬 안의 참조는 GUID 없이 {fileID: 1234}로 저장
+
+씬 파일에도 GUID는 있지만, 
+다른 씬에서 이 오브젝트를 참조하는 건 지원되지 않아요
+
+---
+
+런타임에 생성된 오브젝트
+Instantiate, new GameObject, CreateInstance
+
+파일이 없으니 영속 주소도 없어요
+런타임 ID만 있습니다
+
+---
+
+빌드된 게임에는 AssetDatabase가 없어서 
+이 주소를 조회할 수 없어요. 
+
+런타임에도 GUID 기반 참조가 필요하면, 
+Addressables의 AssetReference처럼 
+
+GUID를 자체 카탈로그로 풀어 주는 시스템을 씁니다
+
+---
+
+GUID는 오브젝트가 아니라 파일에 붙어요
+
+Assets 폴더(와 Packages) 안의 모든 파일과 폴더는 
+옆에 .meta 파일을 하나씩 갖고
+GUID는 거기에 적혀 있습니다
+
+스크립트 (.cs)
+씬 (.unity), 프리팹 (.prefab), SO 에셋 (.asset)
+텍스처, 3D 모델(FBX), 오디오, 머티리얼, 셰이더
+폴더
+
+---
+
+Unity 밖에서 파일만 옮기거나 .meta를 커밋하지 않으면 
+GUID가 새로 생기고, 
+그 파일을 가리키던 참조가 전부 끊깁니다.
+
+---
+
+메인과 서브는 에셋 파일을 다룰 때 쓰는 개념
+
+파일의 대표가 되는 오브젝트를 메인 에셋, 
+그 안에 딸린 것들을 서브에셋이라고 불러요.
+
+---
+
+씬 파일 안에 든 것들은 에셋이 아니라 씬 오브젝트
+
+---
+
+FBX 파일 하나 안의 메시, 머티리얼, 애니메이션 클립
+스프라이트 시트 텍스처를 잘랐을 때 생기는 개별 스프라이트들
+
+---
+
+--- !u!114 &11400000          # 메인 에셋: Shotgun (WeaponSO)
+MonoBehaviour:
+  m_Name: Shotgun
+  shotType: {fileID: 7381920456}   # 같은 파일 안이라 guid 생략
+--- !u!114 &7381920456        # 서브에셋: Pellet x8 (PelletShot)
+MonoBehaviour:
+  m_Name: Pellet x8
+  pellets: 8
+  spread: 0.1
+
+---
+
+PrefabInstance:
+  m_SourcePrefab: {fileID: 100100000, guid: <Rifle.prefab의 GUID>}
+  m_Modification:
+    m_Modifications: ...       # 원본과 달라진 값만
+
+PrefabInstance 블록 하나가 "원본 프리팹의 GUID"와 "달라진 값 목록"만 저장합니다
+
+---
+
+씬: .unity
+프리팹: .prefab
+SO: .asset
+머티리얼: .mat
+애니메이션 클립: .anim
+애니메이터 컨트롤러: .controller
+
+---
+
+파일 이름 전체 뒤에 .meta를 붙이는 거
+
+Assets/Scenes/MainScene.unity
+Assets/Scenes/MainScene.unity.meta
+Assets/Data/Shotgun.asset
+Assets/Data/Shotgun.asset.meta
+
+---
+
+Asset Serialization Mode
+
+Force Text일 때 YAML로 저장
+Force Binary면 바이너리로 저장
+
+Force Text여도 라이팅 데이터처럼 
+크고 사람이 읽을 일 없는 일부 파일은 바이너리로 남아요.
+
+---
+
+.cs 파일은 그 안에 어떤 클래스가 들었든, 
+임포트되면 그 자체가 UnityEngine.Object가 됩니다
+
+.cs 파일은 MonoScript라는 에셋이 된다
+
+---
+
+Unity는 .cs 파일을 임포트해서
+MonoScript라는 오브젝트로 만들어요
+
+TextAsset의 일종
+
+---
+
+m_Script: {fileID: 11500000, guid: ...}가  MonoScript를 가리키는 참조
+
+---
+
+필요한 이유
+
+컴포넌트가 스크립트를 찾는 열쇠
+
+씬의 MonoBehaviour 블록은 클래스 이름이 아니라 
+스크립트 파일의 GUID로 자기 스크립트를 가리킵니다
+
+---
+
+스크립트별 설정이 저장되는 곳
+
+Script Execution Order 설정이 여기에 저장돼요
+
+Default References
+오브젝트 참조 필드에 기본값
+
+프로젝트 창에서 .cs 파일을 선택하면 인스펙터에 Default References 칸이 나와요
+
+---
+
+MonoBehaviour나 SO는 "파일 GUID + 파일명과 같은 이름의 클래스"라는 규칙으로
+클래스까지 찾아가요
+
+그래서 파일명 = 클래스명 규칙이 있는 겁니다
+
+---
+
+executionOrder
+
+플레이어도 실행 순서를 알아야 하니 빌드에 들어가요.
+
+다만 .meta가 아니라 
+스크립트 정보(MonoScript)의 일부로 빌드 데이터에 실립니다
+
+---
+
+Player Loop가 MonoScript를 봐서 실행 순서를 읽는다
+매 프레임 읽는 게 아니라 컴포넌트가 등록될 때 한 번 읽습니다
+
+그 뒤로 Player Loop는 이미 순서대로 정렬된 목록만 돌아요
+
+---
+
+씬이나 프리팹 데이터 파일
+
+"이 컴포넌트의 스크립트는 누구인가"를 적어 둔 명함 같은 오브젝트가 하나 필요
+그게 MonoScript입니다
+
+---
+
+ActiveWeapon 컴포넌트가 씬에 100개 있어도 MonoScript는 하나뿐이고, 
+100개가 모두 그 하나를 가리킵니다
+
+---
+
+global-metadata.dat
+
+타입 정보(클래스 이름, 필드 목록 등)
+
+---
+
+오브젝트 = 데이터 + 타입 표시
+
+100개의 오브젝트가 각자 가진 건 필드 값들뿐입니다
+
+[메모리 속 ActiveWeapon 인스턴스]
+  타입 포인터  → ActiveWeapon 타입 정보 (메서드 코드)
+  weaponSO     → (메모리 주소)
+  timeSinceLastShot = 0.3
+
+---
+
+[SerializeField]로 일반 클래스를 저장하면
+Unity는 필드의 선언 타입만 보고
+"이 자리에는 이런 필드들이 온다"는 레이아웃을 정해요
+
+실제로 들어 있는 객체가 무엇인지는 기록하지 않습니다
+
+---
+
+다시 읽을 때도 선언 타입으로 객체를 만들 수밖에 없으니, 
+파생 클래스의 필드는 들어갈 자리가 없어 사라져요
+
+---
+
+object slicing
+
+파생 객체를 
+기반 타입의 값으로 복사할 때 
+파생 부분이 잘려 나가는 현상
+
+---
+
+Single 로드는 이전 씬 정리를 
+활성화 프레임 안에서 하고,
+
+Additive 는 그 시점을 우리가 고르게 해 줘
+
+---
+
+프레임의 여유(headroom) 안에 들어갈 때뿐
+
+Entry 화면으로 옮기면 기다림은 줄지만, 
+사용자가 보는 화면에서 프레임이 빠질 수 있어
+
+---
+
+UUA
+Resources.UnloadUnusedAssets
+
+---
+
+예외: 이름을 등록해 두면 Unity가 직접 부른다
+
+UnityEvent: 인스펙터에서 버튼의 OnClick에 메서드를 연결하는 방식
+
+애니메이션 이벤트: 클립의 특정 프레임에 메서드 이름을 적어 둡니다
+
+Invoke("메서드 이름"), 
+SendMessage("메서드 이름")
+
+Input System의 PlayerInput (Send Messages 방식)
+
+---
+
+활성화 프레임
+
+비동기 씬 로드의 마지막 단계인 
+씬 활성화(scene activation)가 
+
+메인 스레드에서 실행되는 한 프레임
+
+---
+
+IntroScene 이 부서지고 EntryScene 이 처음 그려지는 프레임
+화면이 인트로에서 Entry 로 바뀌는 프레임
+
+---
+
+활성 씬(active scene)
+
+SceneManager.SetActiveScene 으로 정하는 기준 씬
+새로 만든 GameObject 가 들어갈 씬
+조명 설정도 이 씬에서 가져와
+
+---
+
+GameObject 활성(active)
+
+꺼져 있으면 Awake · Update 가 불리지 않아
+
+---
+
+바깥에서 만든 파일
+.png, .fbx, .wav, .cs 등
+
+임포터가 Unity가 쓸 수 있는 형태로 변환해야 해서
+임포트 에셋이라고 불러요
+
+---
+
+Unity 안에서 만든 파일
+.unity, .prefab, .asset, .mat, .anim, .controller 등
+
+변환 없이 Unity 형식(YAML) 그대로 저장돼서
+네이티브 에셋이라고 불러요
+
+---
+
+생짜 png를 부르는 이름: 소스 에셋(source asset)
+
+Unity는 소스 에셋 파일을 수정하지 않아요. 
+대신 그 파일을 읽어서 변환한 결과를 따로 만듭니다
+
+---
+
+소스 에셋 파일: hero.png. 사람이 만들고 고치는 원본이에요.
+임포트 아티팩트: Library 폴더에 저장된 변환 결과예요. 
+에셋 오브젝트: 코드와 인스펙터가 실제로 다루는 Texture2D예요
+
+필드에 png를 끌어다 넣으면, 실제로 참조되는 건 파일이 아니라 에셋 오브젝트
+
+---
