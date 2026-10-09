@@ -1,0 +1,953 @@
+프로세스인
+
+그 안의 객체인지, 
+스레드인지
+
+system_server 안의 객체 하나이고, 
+바인더 스레드들이 그 메서드를 실행한다
+
+---
+
+두 시점을 빼면 길이가 되지만, 
+그대로 뺄 수 있는 건 두 시점의 기준점이 같을 때뿐이야
+
+기준점이 다르면 두 기준점을 잇는 다리가 먼저 있어야 해
+
+---
+
+평균은 분포의 모양을 지워
+
+---
+
+프레임 시간은 수십 개에서 수천 개가 쌓여
+
+가장 긴 프레임(frames.max)
+기준을 넘은 프레임 수(frames.over33 · over50 · over100)
+
+---
+
+monotonic clock
+앞으로만
+
+SystemClock
+통신망이 바꿀 수 있어서 
+"예측할 수 없이 앞뒤로 뛸 수 있다"
+
+---
+
+.NET의 고해상도 단조 시계
+Android의 단조 시계
+Unity의 자기 시계
+
+---
+
+두 시계를 같은 순간에 함께 읽는 거
+
+---
+
+instrumentation
+
+코드의 정해진 자리에 
+"지금 시각을 적어라"라는 호출(StartupProbe.Mark)을 넣는 방식
+
+표시 하나에 드는 비용은 시계를 한 번 읽고 목록에 한 줄 더하는 것
+로그는 끝날 때 한꺼번에 써
+
+---
+
+FirstFrameEnd
+코루틴이 WaitForEndOfFrame에서 깨어난 뒤
+모든 카메라와 GUI를 렌더한 뒤, 프레임을 화면에 내보이기 직전
+
+하지만 이건 게임 스레드에서 본 순서
+
+그 뒤에도 GPU가 실제로 그리기를 마치고, 
+SurfaceFlinger가 합성하고, 
+다음 vsync에 화면이 갱신되는 단계가 남아 있어
+
+---
+
+표시는 "이 구간이 얼마나 걸렸나"에 답하고, 
+"이 프레임 안에서 무엇이 시간을 썼나"에는 Profiler가 답해
+
+---
+
+화면은 정해진 간격으로 새 그림을 읽어 가
+그 신호가 vsync
+
+90 Hz 화면이면 
+1000 ÷ 90 = 11.1 ms마다 와
+
+---
+
+게임이 그린 프레임은 
+
+vsync에 맞춰서만 
+화면에 올라가니까, 
+
+프레임 시간은 11.1 ms의 정수 배로 계단처럼 나와
+
+---
+
+릴리스 빌드: 출시와 같은 최적화에 프로브만 더한 빌드
+
+Development Build: 디버그 정보와 개발 전용 코드가 들어가고, 
+Profiler를 붙일 수 있어
+
+Deep Profiling: 모든 C# 함수 호출에 계측을 끼워 넣어. 
+이렇게 하면 앱이 "상당히 느리게" 돈다
+
+---
+
+A A A … B B B … 순서로 재면
+그사이 기기가 데워지거나 
+백그라운드 작업이 몰린 영향이 한 변형에만 실려. 
+
+A B C, B C A, C A B처럼 돌리면 
+그 영향이 고르게 나뉘어
+
+---
+
+전체 경로를 재
+
+인트로 무늬에서 숫자 글자를 뺀 A/B에서 
+
+첫 프레임은 694 → 368 ms로 326 ms 줄었어. 
+그런데 EntryScene 첫 프레임은 232 ms 늦어졌어. 
+
+첫 글자를 처리하는 한 번짜리 비용이 사라진 게 아니라 
+EntryScene으로 옮겨 간 거야
+
+---
+
+Perfetto
+
+Android 기기 전체를 한 시간선에 추적
+모든 프로세스와 스레드의 CPU 스케줄링
+
+SurfaceFlinger, system_server까지 담겨
+
+---
+
+0이 어디인가?
+누가 값을 바꿀 수 있나(그래서 뛸 수 있나)?
+기기가 잠든(suspend) 시간을 세나?
+빠르기를 보정하나?
+
+---
+
+Linux 커널은
+같은 카운터 위에 규칙만 다른 시계를 여러 개 내놓고
+
+CLOCK_REALTIME
+네트워크(NTP 서버나 이동통신망)가 값을 고칠 수 있어
+
+CLOCK_MONOTONIC
+"잠든 시간을 빼고 얼마나 지났나"에 답해
+잠들면 같이 멈추는 일의 시간 제한을 잴 때 맞아
+
+---
+
+CLOCK_MONOTONIC_RAW
+
+NTP가 빠르기를 아주 조금 고치는 건
+그 빠르기 보정까지 받지 않아
+하드웨어 박자 그대로가 필요할 때
+
+---
+
+CLOCK_BOOTTIME
+
+MONOTONIC에 잠든 시간을 더한 시계
+잠든 시간까지 포함해 실제로 얼마나 지났나
+
+10분 뒤 알람 같은 일
+
+---
+
+Android의 
+
+SystemClock.uptimeMillis는 
+MONOTONIC, 
+
+elapsedRealtime은 
+BOOTTIME, 
+
+System.currentTimeMillis는 
+REALTIME
+
+---
+
+.NET Stopwatch는 IL2CPP 빌드에서 
+
+clock_gettime(CLOCK_MONOTONIC)을 
+100 ns 단위
+로 읽어
+
+---
+
+profiling
+그걸 하는 방법에 두 갈래
+
+계측(instrumentation)과 
+샘플링(sampling, 표본 추출)
+
+---
+
+instrumentation
+
+계측은 코스 곳곳에 검문소를 세우는 거야
+
+선수가 검문소를 지날 때마다 도장을 받으니, 
+각 검문소를 지난 정확한 시각과 횟수가 남아. 
+
+대신 검문소와 검문소 사이에서 무슨 일이 있었는지는 몰라.
+
+---
+
+그리고 도장을 받을 때마다 잠깐씩 멈추니까
+
+딥 프로파일링이 34배까지 부푼 게 바로 이 효과야. 
+작은 함수까지 모두 검문소가 됐거든
+
+---
+
+샘플링
+
+헬기에서 1 ms마다 사진을 찍는 거야
+
+사진 1000장 중 300장에서 선수가 언덕 위에 있었다면
+"시간의 약 30%를 언덕에서 썼다"
+
+---
+
+사진 찍는 비용은 선수와 상관없이 일정해. 
+
+하지만 통계라서 정확한 시각이나 횟수는 없고, 
+사진 간격보다 짧게 지나간 일은 놓칠 수 있어
+
+---
+
+[Conditional("ENABLE_PROFILER")]
+
+---
+
+엔진 C++ 코드 속의 마커는 Unity가 엔진을 컴파일할 때 들어가
+
+AndroidPlayer/Variations/il2cpp
+
+Development/Libs/arm64-v8a/libunity.so는 97.5 MB
+Release는 28.7 MB
+
+---
+
+Development Build 체크는 
+이 둘 중 어느 바이너리를 APK에 넣을지 고르는 스위치야
+
+---
+
+IL2CPP가 C++를 만들 때, 코드 생성기가 넣는다
+
+빌드 옵션 Deep Profiling Support를 켜면, 
+
+생성되는 모든 메서드 맨 앞에 ProfilerMethodSentry라는 지역 객체 하나를 써 넣어
+
+생성자에서 Profiler에 "메서드 진입"을 알려.
+소멸자에서 "메서드 퇴장"을 알려
+
+---
+
+C++는 지역 객체의 소멸자를 
+
+함수가 끝나는 모든 길(각 return, 예외)에서 불러
+
+---
+
+CRT
+
+빔은 왼쪽에서 오른쪽으로 한 줄을 그은 뒤 
+꺼진 채로 왼쪽 끝으로 빠르게 돌아가고
+horizontal retrace
+
+맨 아랫줄까지 그리면 
+꺼진 채로 맨 위로 돌아가
+vertical retrace
+
+---
+
+함수를 부를 때마다 "끝나면 돌아갈 주소(반환 주소)"가 
+스택 메모리에 쌓여. 
+
+이 주소들을 거슬러 읽어 올라가면 호출 사슬이 나와
+
+---
+
+찍힌 건 처음에는 주소뿐이야. 
+
+나중에 실행 파일의 기호표(symbol table, 주소와 함수 이름의 대응표)로 
+주소를 함수 이름으로 바꾸고, 
+
+---
+
+simpleperf가 커널에 perf_event_open 시스템 호출로 
+"이 스레드를 재 달라"고 요청해.
+
+커널은 CPU 안의 
+PMU(Performance Monitoring Unit, 
+사이클·명령 수 같은 사건을 세는 하드웨어 계수기)를 설정해
+
+---
+
+멈춘 시간은 마이크로초 단위라서, 
+스레드 입장에서는 그냥 아주 잠깐 느려진 것처럼 보여
+
+---
+
+사진
+
+인터럽트가 걸린 순간의 레지스터와 스택 복사본
+
+---
+
+어디를 봐야 할지 모르면 샘플링,
+
+스레드가 일을 하지 않은 것 같으면 스케줄러 추적, 
+
+범인 후보가 있으면 계측으로 크기를 재
+
+---
+
+느리다는 건 무언가에 비해 느리다는 뜻이야
+
+그래서 비교할 기준(baseline)이 필요해
+
+---
+
+바닥
+
+Baseline의 탭 → 첫 프레임 끝이 약 1.06초니까, 
+우리 코드를 아무리 고쳐도 이 밑으로는 못 내려가
+
+---
+
+drill-down
+
+큰 몫을 찾았으면 그 안을 다시 쪼개
+
+이렇게 층을 내려갔어
+
+---
+
+bisection
+
+탐색 범위를 반씩 줄여 가는 방법
+
+A/B 스위치
+
+---
+
+현상을 만든 것
+cause
+
+여러 원인
+contributing factor
+
+결제 연결이 인트로 멈칫의 기여 요인 중 하나, 70 ms
+
+---
+
+글꼴 하나에 세상의 모든 글자가 들어 있지는 않아
+
+TextCore(Unity의 글자 처리 엔진, UI Toolkit이 씀)는 
+그리려는 글자가 지금 글꼴에 없으면 
+대체 사슬을 차례로 뒤져
+
+---
+
+동적 OS 대체
+기기에 깔린 시스템 글꼴을 쓰는 단계
+
+---
+
+UI/AppPanelTextSettings.asset을 만들고 
+m_FallbackOSFontAssets: [](빈 목록)로 저장했어
+
+두 PanelSettings의 textSettings가 모두 이 에셋을 가리켜
+
+---
+
+"없앴다"고 생각한 게 실은 옮긴 것일 수 있다
+
+---
+
+텍스트 워밍업을 지웠지만, 
+
+그 첫 글자 비용 약 156 ms는 
+EntryScene 첫 프레임으로 옮겨 갔을 뿐
+
+---
+
+UI Toolkit이 만든 FontAsset은 
+두 PanelSettings가 함께 쓰는 
+AppPanelTextSettings 캐시에 남아. 
+
+그래서 첫 글자 비용은 한 번만 들어.
+
+---
+
+ResourceSlot은 이미 끝난 로드 요청의 결과를 다시 써서, 
+같은 에셋을 두 번 읽는 걸 막아.
+
+---
+
+다른 스레드로 (offload)
+
+Resources.LoadAsync와 LoadSceneAsync는 
+
+파일 읽기와 풀기를 작업 스레드에서 해. 
+
+다만 마지막 합치기(integration)는 
+게임 스레드에서 
+프레임마다 예산 안에서만 해
+
+---
+
+예산 backgroundLoadingPriority
+
+Low 2 ms, BelowNormal 4 ms, Normal 10 ms, High 50 ms
+
+---
+
+없애기는 eliminate, 
+미루기는 defer 또는 lazy, 
+미리 하기는 prefetch·preload·warm-up, 
+다시 쓰기는 cache·pool, 
+넘기기는 offload, 
+굽기는 precompute·bake, 
+나눠 갚기는 amortize 또는 time-slice, 
+체감 처방은 perceived performance
+
+---
+
+Addressables
+
+필요한 것만 올리고(줄이기) 
+나중에 올리는(미루기) 도구
+
+---
+
+IL
+Unity linker
+IL2CPP
+libil2cpp.so
+
+---
+
+Unity linker
+
+[Preserve] 속성이나 link.xml
+
+---
+
+Managed Stripping Level
+
+UnityEngine과 .NET 라이브러리만 뒤지고
+우리가 쓴 코드는 건드리지 않아
+
+---
+
+Low
+우리 어셈블리도
+그 어셈블리의 형식이 빌드에 들어가는 씬에서 하나도 참조되지 않을 때만
+
+Medium, High: 갈수록 더 공격적으로 지우고
+
+---
+
+엔진 초기화의 Global Managers 로드에
+MonoScript 2491개
+
+---
+
+Low
+향후 폐기 예정이고 권장하지 않는다
+
+---
+
+Strip Engine Code
+
+쓰지 않는 엔진 기능의 코드를 빼는 옵션
+
+---
+
+그 에셋이 직렬화된 참조로 가리키는 다른 에셋도 함께 올라와
+의존성 그래프(dependency graph) 전체가 올라와
+
+---
+
+USS 파일은 빌드되면 StyleSheet 에셋이 돼
+
+[SerializeField] internal Object[] assets 필드
+
+USS 안에서 url("...")로 가리킨 그림이 이 배열에 들어가
+
+그러니 그림을 문자열 경로로 가리키는 게 아니라 
+객체 참조로 붙잡는 거야
+
+---
+
+UXML 안의 <Style src="...">도 마찬가지야
+
+---
+
+씬 → UIDocument → 인트로 UXML 
+→ <Style>로 붙인 BrightAlpine 테마 USS 
+→ 그 테마가 앱 전체 화면에서 쓰는 PNG 43장
+(829 KB짜리 MainBackground 포함)
+
+---
+
+인트로에 필요한 변수와 그림만 담은 <Theme>Intro.uss를 테마마다 만들고
+인트로 UXML에서 테마 <Style>을 뺐어
+
+---
+
+플랫폼이 알려 주는 입력 장치
+
+Android는 터치스크린과 키 장치뿐 아니라 
+가속도계, 자이로, 조도, 근접 같은 센서까지
+
+---
+
+장치 하나가 들어올 때마다 
+InputManager.OnNativeDeviceDiscovered가 이 일을 해
+
+장치 설명(JSON)을 풀어.
+
+맞는 레이아웃을 찾아. 
+그 레이아웃을 처음 쓰는 거라면 
+C# 형식을 리플렉션으로 읽어서 레이아웃을 만들어
+
+레이아웃대로 컨트롤 객체 나무를 만들어
+
+AddDevice로 등록해. 
+AddDevice는 등록할 때마다 
+ReallocateStateBuffers()로 
+모든 장치의 상태 메모리를 다시 잡아
+
+그래서 장치가 많을수록 등록 하나의 비용도 커져.
+
+---
+
+우리 앱은 이 일을 38개 장치에 대해 했고, 
+
+개발 빌드에서 InputSystem.RuntimeInitialize가 131 ms였어.
+
+---
+
+InputSystemSettings.asset의 목록
+
+Touchscreen, Pen, Mouse, Keyboard
+
+---
+
+스택 트레이스: 로그 한 줄의 숨은 비용
+
+Debug.Log
+
+그 순간의 호출 스택을 거슬러 올라가 
+함수마다 이름 문자열로 바꿔
+여러 줄짜리 문자열을 만들어
+
+그걸 네이티브 로거로 넘겨 logcat에 써. 
+개발 빌드라면 에디터 콘솔로도 보내
+
+GC 쓰레기
+
+---
+
+targetFrameRate: 기다림의 단위를 줄이기
+
+---
+
+Unity는 한 프레임의 일이 일찍 끝나도 
+다음 프레임 차례가 될 때까지 기다려. 
+
+이 기다림이 Profiler에 
+WaitForTargetFPS로 보여
+
+---
+
+단계 하나를 넘을 때마다 최소한 프레임 간격 하나를 치러
+
+30 fps면 그 간격이 33.3 ms이고, 
+60을 목표로 하면 이 90 Hz 기기에서 22.2 ms(45 fps)야.
+
+---
+
+LaunchTuning이 SubsystemRegistration 때 60으로 올리고
+끝나면(LaunchTuning.Finish) 원래 값으로 되돌려
+
+---
+
+높은 프레임률이 전력과 발열을 대가로
+
+---
+
+Unity
+Boehm-Demers-Weiser 방식의 GC
+
+수집을 여러 프레임에 나누는 
+증분(incremental) GC가 켜져 있어
+
+---
+
+LaunchTuning은 SubsystemRegistration 때 
+GarbageCollector.GCMode를 Disabled로 바꿔
+
+에디터와 WebGL에서는 지원하지 않는다
+
+---
+
+그동안 할당한 메모리는 회수되지 않아서 계속 쌓이고
+GC.Collect()를 불러도 아무 일도 하지 않아.
+
+---
+
+dependency graph
+A를 올리면 A가 참조하는 B, C도 따라 올라온다
+
+---
+
+프레임
+
+기본 30 fps면 시작 단계 하나를 넘어갈 때마다 33 ms를 기다려야 해서 올려 둬.
+
+---
+
+OS 폰트 끄니까 시작이 0.2초 빨라졌어요
+
+무엇이 빨라졌는지(첫 프레임인지, 전체 시작인지), 
+몇 번 잰 값인지, 
+확실한 건지가 빠져 있어
+
+---
+
+OS 글꼴 대체 목록을 끄면 
+첫 프레임 렌더가 691 ms에서 465 ms로 
+227 ms 줄었고, 
+A/B 확인해서 원인으로 확정
+
+---
+
+중앙값 691(674~712) ms, n=10
+가운데 값, 범위, 횟수
+
+---
+
+자릿수는 측정이 구별할 수 있는 만큼만
+
+logcat이 ms 단위인데 
+
+“691.234 ms”라고 쓰면
+측정이 갖지 못한 정밀함을 꾸며 낸 거야
+
+---
+
+"빨라졌다", "느려졌다"
+
+길이는 
+"줄었다", "늘었다"로, 
+
+시점은 
+"앞당겨졌다", "늦어졌다"로 쓰면 오해가 없어
+
+---
+
+첫 프레임 33% 단축
+
+691 ms에서 줄었다는 건지
+탭부터 첫 화면까지 2.46초에서 줄었다는 건지
+
+---
+
+퍼센트는 분모를 같이 적어
+바탕 숫자
+
+691 → 465 ms(−33%)
+
+---
+
+확신의 정도
+
+"확정": 개입 실험(A/B)이나 기제 확인이 있을 때
+
+"측정함": 그 구간 안에서 직접 잰 값일 때
+
+"유력" 또는 "시각이 겹침": 상관만 있을 때
+
+"추정": 계산이나 다른 측정에서 옮겨 온 값일 때
+
+"미확인": 아직 근거가 없을 때
+
+---
+
+대부분은 첫 문단만 읽으니까, 
+
+첫 문단에 결론, 핵심 숫자 하나, 확신의 정도, 필요한 결정
+
+---
+
+배경: 왜 쟀나, 무엇이 문제였나
+방법: 무엇을 어떻게 쟀나
+결과: 숫자
+해석: 그래서 무엇을 뜻하나, 증거는 어느 칸인가
+결정과 다음 할 일
+측정하지 않은 것과 열린 문제
+
+---
+
+결과는 누가 다시 재도 같아야 하는 사실이고, 
+해석은 다른 사람이 반박할 수 있는 판단이야
+
+---
+
+Low를 Minimal로 되돌림 이라는 사건을
+
+이유
+
+---
+---
+---
+
+CPU와 GPU는 따로 도는 두 프로세서
+
+CPU는 GPU가 할 일을 명령 목록으로 만들어서 넘겨.
+
+---
+
+이 메시를, 
+이 셰이더로, 
+이 텍스처를 써서, 
+이 그림판에 그려라
+
+---
+
+GPU는 그 목록을 나중에 자기 속도로 실행해. 
+
+그래서 CPU가 명령을 다 만들었다고 
+그림이 다 그려진 건 아니야. 
+
+FirstFrameEnd는 사용자가 본 순간보다 앞선다고 한 이유가 
+이 비동기성
+
+---
+
+그래픽 API
+
+OpenGL ES, Vulkan, Metal 같은
+명령을 적는 공통 문법
+
+---
+
+GPU 제조사가 만든 드라이버
+
+공통 문법을 그 GPU만의 명령으로 바꿔
+
+---
+
+드라이버가 하는 일 중 가장 비싼 건 셰이더 컴파일
+
+셰이더는 GPU에서 도는 작은 프로그램
+
+---
+
+Unity는 빌드할 때 셰이더를 
+중간 형식(Vulkan이면 SPIR-V)으로 만들어 두지만, 
+
+그걸 그 GPU의 기계어로 바꾸는 건 
+드라이버가 실행 중에 해
+
+---
+
+고정 설정
+
+blend 방식
+깊이 검사
+정점 형식
+그림판 형식
+
+---
+
+pipeline state
+Pipeline State Object
+
+---
+
+게임 스레드가 장면을 준비
+Unity의 렌더 스레드가 그래픽 API 명령으로
+드라이버를 거쳐 GPU가 그려
+
+완성된 그림이 스왑체인 버퍼에 담겨.
+SurfaceFlinger와 하드웨어 컴포저가 다른 창과 합쳐
+
+다음 vsync에 화면이 그 그림을 읽어 가
+
+---
+
+모바일 GPU
+
+unified memory: CPU와 GPU가 같은 RAM을 나눠 써
+
+tile-based rendering
+
+화면을 작은 타일로 나눠서, 
+타일 하나씩 GPU 칩 안의 빠른 메모리에서 그려
+
+---
+
+OpenGL ES는 드라이버가 많은 걸 알아서 해 주는 API
+
+Vulkan은 그 판단을 앱(여기서는 Unity 엔진)에 넘긴 
+명시적(explicit) API
+
+---
+
+GfxDevice
+
+Unity가 그래픽 API 위에 둔 자기 추상화 층
+
+---
+
+게임 스레드는 엔진 수준의 명령을 큐에 넣기만 하고(client), 
+렌더 스레드가 그걸 실제 Vulkan 호출로 바꿔(worker).
+
+---
+
+렌더 루프 자체를 여러 코어로 나누는 Graphics Jobs는 꺼져 있어
+
+---
+
+frame pacing
+
+Android Frame Pacing 라이브러리(Swappy)
+
+---
+
+VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+
+SoC에 붙은 통합 GPU
+
+---
+
+버전 협상
+
+Vulkan API version 1.1.0 
+
+1.1.128 supported by driver
+1.1.0 requested
+
+드라이버는 1.1.128까지 지원
+Unity는 1.1을 요구
+
+---
+
+VK use pretransform: 1
+Android의 사전 회전(pre-rotation) 처리
+
+패널에는 원래 방향이 있어서
+화면을 돌려 쓰면 누군가 그림을 회전시켜야 해
+
+앱이 하지 않으면 
+OS 합성기(SurfaceFlinger)가 별도 패스로 회전
+
+---
+
+그 비용
+
+합성기가 앱의 GPU 작업을 선점해서 
+프레임마다 1~3 ms를 잃는 사례
+
+앱이 직접 회전을 맡으면 
+합성기용으로 올라가 있던 GPU 클럭이 40% 내려간 사례
+
+---
+
+Vulkan PSO: Cache data successfully loaded
+path=.../cache/vulkan_pso_cache.bin
+
+Unity는 드라이버가 컴파일한 파이프라인 결과를 
+Vulkan 파이프라인 캐시(VkPipelineCache)에 모아 
+앱 캐시 폴더에 저장
+
+그래서 두 번째 실행부터는 같은 파이프라인을 다시 컴파일하지 않아
+
+---
+
+Vulkan API 명세의 확장
+
+---
+
+Vulkan은 Khronos Group(그래픽 표준을 만드는 업계 단체)이 정한 규격
+
+---
+
+본체(core)
+Vulkan을 지원한다면 모두 갖춰야 하는 함수, 구조체, 상수
+
+확장(extension)
+그 위에 선택적으로 더하는 기능
+
+확장 하나는 새 함수, 새 구조체, 기존 상수의 새 값, 
+또는 기존 동작의 변경을 담아.
+
+---
+
+확장을 쓰려면 앱이 "이 확장을 쓰겠다"고 생성 시점에 직접 켜야 해
+
+---
+
+이름은 VK_<누가>_<무엇> 모양
+
+KHR: Khronos가 공식 승인한 것.
+EXT: 여러 회사가 함께 쓰는 것.
+QCOM: Qualcomm 전용.
+GOOGLE, ANDROID: Google과 Android 전용
+
+---
+
+Device Model 'samsung SM-A235N'         휴대폰 제품 자체
+
+VkPhysicalDevice "Adreno (TM) 610"      GPU 하드웨어
+
+deviceType=1 / deviceID=6010001         그 GPU 의 종류 · 식별 번호
+
+VkDevice (논리 장치)                    앱이 그 GPU 와 연 작업 창구
+
+GfxDevice client / real (GfxDeviceVK)   Unity 엔진의 그래픽 층
+
+---
+
+Unity Technologies              Unity 엔진 6000.3.22f1
+                                  ├─ URP ........ 무엇을 어떤 순서로 그릴지 (렌더 파이프라인)
+                                  └─ GfxDevice .. 엔진의 그래픽 층
+                                       ├─ client ............ 게임 스레드: 명령을 큐에 적음
+                                       └─ real device ....... 렌더 스레드: 실행
+                                            ├─ GfxDeviceVK   ← 지금 쓰는 것
+                                            └─ GLES 백엔드   ← 대안 (API 목록: Vulkan → GLES3)
+
+Khronos Group                   Vulkan 1.1 
+
+  확장                            VK_KHR_* (Khronos)  VK_EXT_* (여러 회사)
+                                  VK_QCOM_* (Qualcomm)  VK_GOOGLE_* · VK_ANDROID_*
+
+Google (Android 14)            libvulkan.so .............. 로더 + WSI(surface · swapchain)
+                                  └─ 다 그린 그림 → SurfaceFlinger · HWC → 화면
+
+Qualcomm                       Adreno Vulkan 드라이버 512.502.0 (0x801F6000)
+                                  └─ 셰이더 컴파일러 EV031.32.02.17 (SPIR-V → GPU 기계어)
+
+Qualcomm                       Snapdragon 680 ............ SoC (한 칩에 여러 프로세서)
+                                  ├─ Adreno 610 ............ GPU (deviceID 0x06010001)
+                                  └─ Kryo 265 × 8 .......... CPU (4 big + 4 little)
+ARM                                   └─ ARM64 명령어 집합 · big.LITTLE 구조
