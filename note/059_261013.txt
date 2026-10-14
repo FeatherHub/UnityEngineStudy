@@ -1,0 +1,594 @@
+DNS는 한 이름에 대해 여러 종류의 정보를 담습니다
+
+DNS 레코드
+
+이 도메인의 웹 서버 IP는?
+이 도메인으로 온 메일은 어느 서버가 받나?
+이 도메인의 인증서는 어느 기관이 발급할 수 있나?
+
+---
+
+DNS는 (이름, 타입)을 키로 하고
+그에 대한 데이터를 값으로 하는
+
+---
+
+www.example.com.   300   IN   A   203.0.113.10
+
+name
+이 레코드가 어떤 이름에 대한 것인지
+
+TTL(Time To Live, 유효 시간)
+이 답을 받은 쪽이 몇 초 동안 저장해 두고 다시 묻지 않아도 되는지
+
+class
+초창기에 인터넷 외 다른 네트워크도 고려했던 흔적
+
+type
+어떤 종류의 정보인지
+
+데이터
+실제 정보
+
+---
+
+이름 끝의 마침표(.)
+
+루트까지 완전히 적은 이름
+FQDN, Fully Qualified Domain Name
+
+---
+
+한 도메인에 속한 레코드들의 묶음
+zone file
+DNS 설정 파일
+
+---
+
+registry
+
+최상위 도메인 하나를 통째로 운영하는 기관
+
+.com은 Verisign
+.kr은 KISA(Korea Internet & Security Agency, 한국인터넷진흥원)
+
+---
+
+등록업체(registrar)
+
+도메인을 소비자에게 판매하고 레지스트리에 등록해 주는 회사
+
+---
+
+DNS 호스팅
+
+내 존을 실제로 보관하고 답해 주는 
+권한 있는 네임서버를 운영하는 곳
+
+---
+
+등록업체에서 네임서버를 Cloudflare 것으로 바꾸라
+
+레지스트리에 걸린 위임 정보(NS)를 Cloudflare 쪽으로 돌리는 일
+
+---
+
+A 레코드(Address)
+
+이름 → IPv4 주소
+
+---
+
+AAAA 레코드
+
+이름 → IPv6 주소
+
+---
+
+이름을 다른 이름으로 돌리는 레코드: CNAME
+Canonical Name
+
+www.example.com.   300   IN   CNAME   my-site.pages.dev.
+
+리졸버는 www.example.com을 물었다가 CNAME을 받으면 
+my-site.pages.dev를 다시 조회해서 최종 IP를 얻습니다
+
+---
+
+NS 레코드(Name Server)
+
+이 이름(존)은 이 네임서버들이 담당한다
+위임 레코드
+
+example.com.   86400   IN   NS   ada.ns.cloudflare.com.
+example.com.   86400   IN   NS   bob.ns.cloudflare.com.
+
+---
+
+SOA 레코드(Start of Authority, 권한의 시작)
+
+---
+
+MX 레코드 Mail Exchanger
+
+누군가 me@example.com으로 메일을 보내면, 
+
+발신 측 메일 서버는 example.com의 MX 레코드를 조회해 
+받을 서버를 찾습니다
+
+example.com.   3600   IN   MX   10   mx1.mailprovider.com.
+example.com.   3600   IN   MX   20   mx2.mailprovider.com.
+
+---
+
+SPF, Sender Policy Framework
+
+우리 도메인 이름으로 메일을 보내도 되는 서버는 이것들뿐
+
+v=spf1 include:_spf.google.com -all
+
+---
+
+DKIM(DomainKeys Identified Mail, 도메인키 식별 메일)
+
+발신 서버가 메일에 전자서명을 하고, 
+그 서명을 검증할 공개키를 DNS에 올려 둡니다
+
+---
+
+DNS
+
+물리적 측면: 여러 장소, 여러 기계에 저장되어 있다
+논리적 측면: 하나의 이름 공간, 하나의 규칙, 이름마다 하나의 원본
+
+---
+
+하나의 뿌리: 모든 이름이 같은 루트에서 출발합니다
+
+---
+
+모든 순간에 모두가 똑같은 것을 본다는 뜻이 아닙니다
+캐시
+레코드를 바꾼 직후에는 어떤 리졸버는 새 값을, 어떤 리졸버는 옛 값을 봅니다
+
+---
+
+무엇이 공식 원본인지가 하나로 정해져 있기 때문
+
+---
+
+루트 → kr → co.kr → mygame.co.kr의 계층
+
+---
+
+위임 링크로 연결
+
+상위 존에 있는 NS 레코드가 
+"이 아래 부분은 저 서버에 있다"는 포인터 역할
+
+---
+
+같은 이름으로 다른 곳에 가게 되어
+
+---
+
+그 존의 권한 있는 네임서버(authoritative nameserver)가 가진 값이 
+유일한 원본
+
+---
+
+저장 장치를 나무의 한 지점에 붙이는 것을 마운트
+
+---
+
+.kr 존의 mygame.co.kr이라는 지점에 
+Cloudflare 서버의 존이 "마운트"되어 있는 셈
+
+---
+
+1970~80년대
+ARPANET
+
+모든 컴퓨터의 이름과 주소를 HOSTS.TXT라는 파일 하나
+
+SRI-NIC가 이를 관리해 모두가 주기적으로 내려받았습니다
+
+---
+
+컴퓨터 수가 늘어나자 파일이 커지고, 
+변경 요청이 한 곳에 몰리고, 
+이름 충돌을 조정하기 어려워졌습니다
+
+1983년 Paul Mockapetris가 DNS를 설계했습니다
+
+---
+
+관리 권한을 나눈다
+각 조직이 자기 이름은 자기가 관리한다. (분할 + 위임)
+
+약간의 낡음을 허용한다
+이름 조회는 읽기가 압도적으로 많고 변경은 드물기 때문에
+몇 분~몇 시간 옛 값을 보더라도 
+캐시로 성능과 확장성을 얻는 쪽이 낫다
+
+---
+
+중앙집중형 DB
+한 곳에 전부
+일관성은 완벽하지만 
+확장과 장애에 약합니다
+
+---
+
+블록체인
+모든 참여자가 전체 사본을 갖고
+변경할 때마다 합의(consensus)를 거칩니다
+위조에 강하지만
+느리고 무겁습니다
+
+---
+
+DNS
+관리 권한에 따라 나누고
+전체 합의 없이 
+각 부분의 주인이 자기 부분만 고치며
+캐시로 느슨하게 퍼뜨립니다
+
+---
+
+.kr을 처리하는 서버들은 모든 .kr 도메인에 대해 같습니다
+
+.kr은 KISA가 운영하는 하나의 존
+
+Korea Internet & Security Agency, 한국인터넷진흥원
+
+내용이 거대한 위임 장부
+
+---
+
+mygame.co.kr
+
+이름을 읽는 법
+
+오른쪽에서 왼쪽으로 읽습니다
+
+맨 끝의 보이지 않는 루트(.)
+
+---
+
+kr: 대한민국의 국가 코드 최상위 도메인
+
+국제 표준 ISO 3166-1의 두 글자 국가 코드에서 왔습니다
+
+International Organization for Standardization, 국제표준화기구
+
+---
+
+co
+.kr 아래의 분류 중 하나
+
+---
+
+mygame
+회사가 등록한 이름
+
+---
+
+mygame.co.kr의 위임 정보는 정확히는 co.kr 단계에 있습니다
+
+---
+
+.kr 서버는 mygame.co.kr의 웹 서버 IP 주소도, 메일 서버도 모릅니다.
+
+누가 mygame.co.kr의 주소를 물으면 이렇게 답할 뿐입니다
+
+"나는 모른다. Cloudflare의 ada와 bob에게 물어봐라."
+
+이런 응답을 참조(referral) 라고 합니다
+
+---
+
+레지스트리
+
+하나의 최상위 도메인(TLD, Top-Level Domain)을 맡아 운영하는 기관
+
+등록업체(registrar, 국내 법률 용어로 "도메인 등록대행자")
+
+등록인, registrant
+
+---
+
+최상단
+ICANN, IANA
+
+.kr 같은 국가 도메인은 각국 기관이 그 나라의 법
+(한국은 「인터넷주소자원에 관한 법률」)에 따라 운영
+
+---
+
+RFC(Request for Comments, 인터넷 표준 문서 시리즈)
+1034
+
+모든 존을 둘 이상의 네임서버가 지원하도록 요구합니다
+
+장애 대비
+성능
+
+---
+
+TLS
+Transport Layer Security
+
+암호화
+변조되면 탐지됨
+
+---
+
+접속한 서버가 정말 그 도메인의 주인인지 확인
+
+impersonation
+DNS 응답이 위조되어 가짜 서버로 갔더라도, 
+상대가 진짜인지 확인할 방법이 없습니다.
+
+---
+
+HTTPS
+HTTP를 TLS로 감싼 것
+
+편지(HTTP)는 그대로 쓰되, 
+봉인된 금고(TLS)에 넣어 보내는 셈
+
+---
+
+SSL(Secure Sockets Layer, 보안 소켓 계층)
+1990년대 중반 Netscape가 만든 원조 기술
+
+TLS: 1999년 인터넷 표준 기구 IETF(Internet Engineering Task Force)가 
+SSL을 이어받아
+표준화하면서 붙인 새 이름
+
+---
+
+현재 SSL의 모든 버전과 TLS 1.0·1.1은 보안 결함 때문에 
+공식 폐기되었고
+
+실제로 쓰이는 것은 
+TLS 1.2와 1.3
+
+---
+
+“SSL 인증서”, “SSL 설정”이라는 말이 계속 쓰이는 것은 순전히 관성
+
+지금 실제로 동작하는 것은 언제나 TLS
+
+---
+
+chain of trust
+
+브라우저와 운영체제에는 믿을 만한 최상위 CA 목록(root store)이 미리 들어 있습니다
+
+루트 CA → 중간 CA → 사이트 인증서
+
+certificate
+이 공개키는 mygame.co.kr의 것이다
+
+CA(Certificate Authority, 인증 기관)
+
+
+---
+
+handshake
+연결 시작 과정
+
+---
+
+접속
+
+서버가 인증서를 보여 줍니다
+
+브라우저가 확인합니다
+서명 사슬이 믿을 만한 루트까지 이어지는가
+
+서버는 그 인증서의 공개키와 짝인 개인키를 실제로 갖고 있음을 연결 과정에서 증명합니다
+
+양쪽이 Diffie–Hellman 키 교환이라는 방식으로, 
+엿듣는 사람이 알아낼 수 없는 공통 비밀키(대칭키) 를 만들어 
+이후 통신을 빠르게 암호화합니다
+
+---
+
+DNS는 "어느 IP로 가야 하나"를 알려주는 길 안내이고, 
+
+TLS는 도착한 뒤 "당신이 정말 mygame.co.kr인가"를 확인
+
+DNS 응답은 위조될 수 있습니다(cache poisoning)
+
+하지만 가짜 서버는 mygame.co.kr의 개인키가 없으므로 
+유효한 인증서를 내밀지 못하고
+
+---
+
+hostname
+
+특정 기계를 가리키는 완전한 이름
+
+---
+
+apex / 루트 도메인 / naked domain
+
+존의 꼭대기 이름
+
+www 같은 것이 붙지 않은 mygame.co.kr 자체
+
+---
+
+wildcard record
+
+*.mygame.co.kr처럼 별표로 
+"따로 정의되지 않은 모든 서브도메인"에 일괄 적용되는 레코드.
+
+---
+
+IDN(Internationalized Domain Name,): 회사.kr처럼 
+영문 외 문자를 쓴 도메인
+
+퓨니코드(Punycode): IDN을 DNS가 다룰 수 있는 영문·숫자로 바꾼 표기
+xn--로 시작
+
+---
+
+domain parking
+
+도메인만 사 두고 사용하지 않는 상태. 
+등록업체의 임시 안내 페이지가 뜹니다
+
+---
+
+kr, co.kr, mygame.co.kr은 실제로 각각 별개의 존이기
+
+www.mygame.co.kr
+www도 점으로 구별된 이름이지만 
+별도의 존이 아니라 
+mygame.co.kr 존 안에 들어 있는 항목
+
+---
+
+label
+점과 점 사이의 조각
+
+www, mygame, co, kr
+
+---
+
+node
+
+레이블은 나뭇가지 하나하나 이름
+
+어떤 지점에서 루트까지 
+레이블를 이어 읽은 것이 그 지점의 이름
+
+www.mygame.co.kr도, mygame.co.kr도, co.kr
+
+---
+
+domain
+
+어떤 지점과 그 아래에 달린 모든 지점을 합친 하위 나무(subtree)
+
+“mygame.co.kr 도메인”은 
+
+mygame.co.kr 자신과 
+
+www.mygame.co.kr, mail.mygame.co.kr, 
+앞으로 만들 shop.mygame.co.kr까지 모두 포함
+
+---
+
+zone
+한 주체가 통째로 관리하는 구역
+
+www.mygame.co.kr은 존이 아니라 
+mygame.co.kr 존 안에 있는 항목 하나
+
+---
+
+루트 존은 데이터(장부)입니다. 세상에 하나뿐입니다
+
+루트 서버는 그 데이터를 서빙하는 기계입니다
+
+a.root-servers.net부터 m.root-servers.net까지 이름은 13개이고
+12개 기관이 나눠 운영하며
+애니캐스트로 전 세계 천 곳이 넘는 장소에 복제되어 있습니다.
+
+---
+
+루트 힌트
+
+모든 조회가 루트에서 시작하는데, 
+루트 서버의 주소는 DNS로 알아낼 수 없습니다
+
+리졸버 소프트웨어에는 루트 서버 13개의 이름과 IP 주소가 파일로 미리 내장되어 있습니다
+
+이 파일을 루트 힌트(root hints) 라고 합니다.
+
+DNS 전체에서 손으로 박아 넣은 출발점은 사실상 이것 하나뿐입니다
+
+---
+
+mygame.co.kr, mygame.com, mygame.kr은 서로 완전히 다른 도메인
+
+---
+
+mygame-website.mynickname.workers.dev
+
+---
+
+dev
+gTLD, generic TLD
+Google이 레지스트리로 운영
+
+.dev 전체가 브라우저에 HSTS 등록되어 있어 항상 HTTPS로만 접속
+
+---
+
+HSTS
+
+HTTP Strict Transport Security,
+HTTP 엄격 전송 보안
+
+---
+
+workers.dev
+
+Cloudflare가 소유한 도메인
+
+---
+
+mynickname.workers.dev
+
+Cloudflare 계정에 배정된 workers.dev 하위 주소
+대시보드에서 바꿀 수 있습니다
+
+---
+
+mygame-website
+
+Worker의 이름
+
+---
+
+workers.dev 주소는 자기 도메인을 Cloudflare에 연결하지 않고도 
+Worker를 바로 띄워 볼 수 있게 한다
+
+---
+
+workers.dev 주소는 켜져 있으면 누구나 접속할 수 있습니다
+
+---
+
+forward proxy
+직원들의 인터넷 접속을 모아서 대신 내보내는 서버가 이것
+
+---
+
+reverse proxy
+사용자는 진짜 서버 대신 리버스 프록시에 접속하고
+리버스 프록시가 뒤의 서버에 요청을 전달합니다.
+
+---
+
+HTTPS 암호화를 대신 처리하고
+캐시하고
+DDoS 공격을 흡수하고
+WAF로 악성 요청을 거르고,
+리디렉션 규칙을 적용
+
+---
+
+Web Application Firewall
+
+---
+
+그 이름을 물으면 
+원래 적힌 주소 대신 
+Cloudflare 엣지의 애니캐스트 IP를 답한다
