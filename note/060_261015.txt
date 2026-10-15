@@ -1,0 +1,339 @@
+보낸다 / 받는다
+
+연결 층, 접속한다 / 접속을 받는다
+이동 층, 넘긴다 / 넘겨받는다
+봉투, 발신자(From) / 수신자(To)
+
+---
+
+Mail Submission Agent
+제출 서버
+
+MUA가 쓴 메일을 처음 받아 주는 서버
+smtp.daum.net
+
+---
+
+어떤 도메인의 MX 레코드가 가리키는 MTA
+Mail Transfer Agent
+
+aspmx.daum.net
+
+---
+
+TCP 465번 포트로 접속해서
+SMTP로 대화한다
+
+---
+
+SMTP
+메일을 넘기는 대화 규칙(RFC 5321)
+텍스트 한 줄씩 명령과 응답을 주고받아요
+
+명령: EHLO, AUTH, MAIL FROM, RCPT TO, DATA, QUIT
+응답: 220(준비됨), 250(성공), 354(본문 보내), 235(로그인 성공), 535(로그인 실패)
+
+---
+
+IP 주소는 "어느 컴퓨터"를
+포트 번호는 "그 컴퓨터에서 어느 프로그램"을
+
+---
+
+서버 프로그램은 
+특정 포트에서 
+접속을 기다리고(listen), 
+
+---
+
+TCP 연결 하나는 
+(내 IP, 내 포트) ↔ (상대 IP, 상대 포트) 쌍으로 구별
+
+---
+
+scheme://domain:port/path
+표기법
+
+자원의 위치를 적는 표기법
+
+---
+
+이 표기로 가리킨 자원을 
+
+실제로 주고받는 방식은 
+
+scheme이 정하는 프로토콜
+
+---
+
+IP에 바로 connect해서 통신하는 방식
+
+TCP 소켓 통신(소켓 프로그래밍)
+
+socket() → connect(IP, 포트) → send()/recv()
+
+---
+
+그 연결 위에서 주고받는 바이트의 규칙이 
+애플리케이션 프로토콜
+
+---
+
+const socket = connect({ hostname: 'smtp.daum.net', port: 465 });
+
+---
+
+브라우저 차단 포트
+
+SMTP(25, 465, 587)
+
+POP3(110, 995)
+IMAP(143, 993)
+
+---
+
+웹페이지 JavaScript
+TCP 소켓 API가 아예 없어요
+
+---
+
+Unity
+
+PC나 모바일 빌드는 System.Net.Sockets로 아무 서버에나 TCP 접속
+
+WebGL 빌드
+
+System.Net을 쓸 수 없고 
+UnityWebRequest(HTTP)나 WebSocket
+
+---
+
+TCP 443 + TLS + HTTP : POST /api/contact (폼 내용)
+
+---
+
+Worker (MUA 역할) → smtp.daum.net (제출 서버, MSA)
+
+TCP 465 + TLS + SMTP 
+  EHLO 
+  AUTH(Daum 접속 아이디, 앱 비밀번호) 
+  MAIL FROM:<발신 주소> 
+  RCPT TO:<abc@mygame.com> 
+  DATA(헤더 + 본문) 
+  QUIT
+
+---
+
+smtp.daum.net (이제 MTA 역할) → 리졸버
+
+   (mygame.com, MX)?      → aspmx.daum.net
+   (aspmx.daum.net, A)?   → 121.53.85.23
+
+smtp.daum.net → 121.53.85.23 (mygame.com 의 MX 서버)
+
+aspmx.daum.net → (MDA) → abc@mygame.com 이 연결된 계정의 메일함에 저장
+
+Mail Delivery Agent
+받은 메일을 메일함에 넣는
+
+---
+
+IP 주소
+
+네트워크에서 네트워크 인터페이스를 가리키는 숫자 주소
+
+연결은 언제나 IP 주소로 맺어요
+
+---
+
+DNS 이름 나무
+
+오른쪽에서 왼쪽으로 읽으면 나무를 내려가요
+
+---
+
+도메인 이름(정확히는 존)에는
+여러 종류의 레코드가 달릴 수 있어요
+
+A(IPv4 주소)
+MX(메일 받을 서버)
+CNAME(다른 이름의 별명)
+
+---
+
+호스트 이름
+특정 서버(호스트)를 
+가리키는 용도로 쓰이는 
+도메인 이름
+
+---
+
+호스트 이름 ⊂ 도메인 이름
+
+모든 호스트 이름은 도메인 이름이지만
+모든 도메인 이름이 호스트를 가리키지는 않아요
+
+---
+
+같은 도메인 이름도 레코드 종류에 따라 역할이 달라요
+
+도메인 이름 mygame.com은 웹에서 
+A 레코드로 Cloudflare 
+서버 주소를 가리키는
+
+메일 도메인 이름 abc@mygame.com 에서 그 메일을 받는 서버는 
+MX 레코드가 가리키는 
+다른 도메인 이름(aspmx.daum.net)
+
+---
+
+여러 이름 → 한 IP
+
+Cloudflare의 IP 하나도 수많은 사이트가 함께 써요
+HTTP 요청은 Host 헤더로 "어느 사이트인지"를 밝혀요
+
+---
+
+URL(Uniform Resource Locator)
+여러 프로토콜을 같은 문법으로
+
+smtps://smtp.daum.net:465
+
+“smtp.daum.net의 465번 포트에 TLS로 접속해서 SMTP로 대화하라”
+
+---
+
+여러 스킴의 URL을 받아 알맞은 프로토콜로 통신해 주는 프로그램
+
+curl
+
+---
+
+import { connect } from 'cloudflare:sockets'
+Workers 런타임 제공
+TCP 소켓 API
+
+---
+
+fetch(): HTTP 전용
+
+---
+
+메일 한 통
+SMTP 대화의 명령으로 전달
+
+봉투(envelope)
+MAIL FROM:<발신 주소>, RCPT TO:<수신 주소>
+서버들이 배달에 쓰는 정보
+
+편지지(message)
+DATA 명령 뒤에 넘기는 내용
+From:, To:, Cc:, Reply-To:, Subject:
+
+---
+
+MX 서버는 RCPT TO 명령을 받는 순간
+
+내용(DATA)을 받기도 전에 
+
+그 주소의 도메인이 
+자기가 담당하는 도메인인지 
+
+---
+
+제출 서버: "우리 회원이 맡기는 메일"을 받는 곳
+
+검사하는 것: 맡기는 사람(로그인)
+받는 사람: 봉투의 수신자가 어디든 받아요
+
+---
+
+MX 서버: "우리 도메인 앞으로 오는 메일"을 받는 곳이에요
+
+검사하는 것: 봉투의 수신자가 우리 도메인인가
+맡기는 쪽: 누구든 받아요(로그인 없음)
+
+---
+
+제출 서버
+
+"로그인한 사용자만 부를 수 있는 보내기 API"
+
+---
+
+MX 서버
+
+"외부 서비스 누구나 호출할 수 있는 공개 수신 엔드포인트(webhook)"
+단, 내 계정 앞으로 온 이벤트만 받아요
+
+---
+
+Gmail 사용자가 abc@mygame.com에게 보내면, 
+
+Google의 MTA가 aspmx.daum.net에 직접 접속해요. 
+
+Google은 Daum 계정이 없어요. 
+
+MX 서버가 로그인을 요구하면 
+세상 누구도 mygame.com에 메일을 보낼 수 없게 돼요
+
+---
+
+MX 서버가 남의 도메인 앞 메일까지 받아서 대신 넘겨 주면
+
+---
+
+로그인 대신 MX 서버가 보는 것들
+보내는 쪽을 믿어도 되나
+
+SPF(Sender Policy Framework)
+봉투 발신자(MAIL FROM) 도메인의 TXT 레코드에 적힌
+
+---
+
+DKIM(DomainKeys Identified Mail)
+보내는 서버가 메일에 전자서명을 붙여요
+
+받는 쪽은 도메인의 TXT 레코드에서 공개키를 가져와 검증해요
+
+---
+
+DMARC(Domain-based Message Authentication, Reporting and Conformance)
+
+편지지의 From 도메인 주인이 TXT 레코드로 정책을 선언해요
+
+---
+
+메일함에서 메일을 가져오는(읽는) 프로토콜
+
+POP3(Post Office Protocol version 3, 포트 110 평문 / 995 TLS)
+
+서버에는 받은편지함만 있고
+읽음 표시나 폴더 같은 상태는 기기마다 따로 저장돼요
+그래서 여러 기기를 쓰면 상태가 엇갈려요
+
+---
+
+IMAP(Internet Message Access Protocol, 포트 143 평문 / 993 TLS)
+
+폴더, 읽음과 별표 표시, 검색, 이동, 삭제가 서버에서 일어나서,
+모든 기기에서 같은 상태로 보여요
+
+요즘의 기본이에요
+
+---
+
+우리 Worker는 메일을 어디에 넘기고
+Cloudflare가 아니라 Daum의 제출 서버(smtp.daum.net)에 넘겨요
+
+Cloudflare는 Worker를 실행할 뿐
+
+---
+
+Cloudflare Email Routing 방식이었다면
+
+Worker가 env.EMAIL.send()로 
+
+Cloudflare의 메일 발송 시스템에 넘기고
+
+그 시스템이 MTA로서 MX 서버에 배달했을 거예요
