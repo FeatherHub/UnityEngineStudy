@@ -1,0 +1,160 @@
+Rule-based
+Behavior Tree
+FSM
+
+---
+
+강화학습 기반의 게임 AI
+
+---
+
+개별 숫자가 차지하는 위치
+
+---
+
+여러 자리를 묶어 하나의 단위로 취급
+단위 구획, 계급
+
+---
+
+각 구획 내부에서 반복되는 자릿값의 이름
+
+개별 자리의 절댓값
+
+---
+
+electricity to run the dedicated RTX 5090 fleet 24/7, 
+
+Cloudflare bandwidth, object storage for your creations,
+
+Supabase for auth and database, 
+
+Stripe fees, 
+
+venture investors demanding margin
+
+no growth team I need to fund
+
+---
+
+기반 이미지 모델 
+
+---
+
+Model
+
+복잡한 현실 세계를 축약
+본따는 모형
+
+---
+
+Mathematical Model
+
+관계
+Y = aX + b
+
+---
+
+입력
+넣었을 때 
+답변
+내놓도록
+
+---
+
+수많은 입력
+
+---
+
+identity preservation
+
+정면, 측면, 후면에서도 같아 보여야 하고
+
+temporal consistency
+
+프레임이 이어질 때
+
+---
+
+프롬프트는 이미지를 완전히 고정하기엔 정보가 부족
+
+설명에 맞는 이미지는 수없이 많습니다
+
+있을 법한 분포(distribution) 를 정의
+
+---
+
+매번 생성할 때마다
+그 분포 안의 다른 샘플이 나오는
+
+---
+
+모델 내부에 영속 기억이 없음
+
+---
+
+측면은 어떻게 생겼을까?
+뒤쪽은 어떻게 이어질까?
+주름은 어떻게 생길까?
+
+---
+
+보존하는 게 아니라
+많은 부분을 추론해서 채워 넣습니다
+
+---
+
+불변 요소와 가변 요소
+
+---
+
+Llama 3 모델
+학습이 끝난 AI 두뇌 (가중치 파일)
+
+---
+
+도메인 특화 AI 서비스
+vertical AI product
+
+---
+
+도메인에 필요한 추가 적응층과 제어층과 워크플로를 얹어서
+
+---
+
+코어 모델 전체를 직접 재학습해서 판매
+
+---
+
+LoRA
+
+얇은 추가 모듈
+
+---
+
+전용 임베딩/어댑터
+
+---
+
+Modal
+Modality
+
+들어오고 나가는
+데이터 형태
+
+텍스트, 이미지, 음성
+
+---
+
+표현
+
+---
+
+Multimodal Model
+
+---
+
+Encoder
+
+Projector
+벡터 표현으로 변환
