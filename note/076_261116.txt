@@ -1,0 +1,497 @@
+플레이어의 행동을 이벤트로 기록하고
+이벤트를 지표로 요약해
+제품과 마케팅의 결정을 내리는 일
+
+---
+
+플레이어에게 일어난 일 하나를 적은 기록 한 줄
+레벨 3을 깼다
+
+---
+
+parameter
+
+이벤트에 붙는 세부 정보
+levelIndex = 3
+
+---
+
+schema
+사전 약속
+
+이 이벤트는 이런 이름과 자료형의 매개변수를 가진다
+
+---
+
+여러 이벤트가 같은 플레이어의 것임을 묶어 주는 문자열
+
+---
+
+SDK
+이벤트를 모아 서버로 보냅니다
+
+---
+
+이벤트 흐름 순서
+게임 코드 → SDK → 유니티 서버 → 대시보드
+
+---
+
+standard event
+유니티가 미리 정의한 이벤트
+대부분은 SDK가 알아서 전송
+
+---
+
+custom event
+내 게임 고유의 이벤트
+
+대시보드의 이벤트 매니저에서 스키마를 만듭니다
+
+---
+
+코드에서 보낸 이벤트가 집계에 들어가느냐
+
+대시보드에 있는 스키마와 일치하느냐
+
+대소문자나 자료형 하나만 어긋나도 불일치
+
+---
+
+스키마 설계가 구현보다 먼저
+
+AnalyticsService.Instance.RecordEvent(
+    new CustomEvent("levelCompleted") { { "levelIndex", 3 } });
+
+---
+
+방금 보낸 이벤트가 안 보인다는 문제
+
+시간 지연
+
+전송은 60초 주기
+이벤트 브라우저 반영은 10분
+대시보드 갱신은 2시간 간격
+
+---
+
+2026년 1월의 SDK 6.2.1은 앱이 일시정지될 때 미전송분을 
+디스크에 저장하도록 고쳐졌습니다
+
+---
+
+지표 (metric)
+
+이벤트 여러 줄을 숫자 하나로 요약
+
+---
+
+일간 활성 이용자 수
+DAU, Daily Active Users
+
+하루에 이벤트를 1개 이상 남긴 플레이어 수
+
+---
+
+N일차 잔존율 (Day-N retention)
+계속 하는가
+
+설치 N일 뒤에 접속한 플레이어 수 ÷ 그날 설치한 플레이어 수
+
+---
+
+일간 활성 이용자당 평균 매출
+ARPDAU
+Average Revenue Per Daily Active User
+
+하루 매출 ÷ DAU
+
+---
+
+생애 가치 (LTV, Lifetime Value)
+한 명의 값어치는 얼마인가
+
+플레이어 한 명이 그만둘 때까지 내는 매출의 예상 합계
+
+---
+
+funnel
+어디서 이탈하는가
+정해진 단계를 차례로 통과한 플레이어 비율
+
+---
+
+마케팅 직군의 일
+유저 획득 (UA, User Acquisition)
+
+광고비를 써서 새 플레이어를 데려오는 일
+
+---
+
+attribution
+
+이 설치는 어느 광고 덕분인가
+
+모바일 측정 파트너
+MMP, Mobile Measurement Partner
+어트리뷰션을 대신 해 주는 업체
+
+---
+
+advertising ID
+
+기기마다 붙는 광고용 식별자
+
+IDFA (Identifier for Advertisers)
+GAID (Google Advertising ID)
+
+---
+
+광고비 대비 매출 (ROAS, Return On Ad Spend)
+
+광고로 온 플레이어의 매출 ÷ 광고비.
+
+---
+
+ATT, App Tracking Transparency
+팝업
+
+이 팝업이 막는 것은 IDFA뿐이고
+설치 어트리뷰션은 동의 없이도 집계 단위로 며칠 늦게 나옵니다
+
+---
+
+iOS의 어트리뷰션 수단
+
+애플의 프레임워크
+SKAdNetwork (StoreKit Ad Network, 약칭 SKAN)
+
+후속작 AdAttributionKit (약칭 AAK)
+
+---
+
+Android
+
+구글
+프라이버시 샌드박스의 어트리뷰션 기술을 낮은 채택률을 이유로 접었습니다
+그 결과 GAID 기반 측정이 당분간 지금처럼 유지된다고 봅니다
+
+---
+
+법령
+
+동의 (consent)
+플레이어가 자기 데이터 수집을 허락하는 의사 표시
+
+---
+
+GDPR, General Data Protection Regulation
+유럽연합
+사전 동의 (opt-in)와 삭제 요청 대응
+
+---
+
+CCPA, California Consumer Privacy Act
+미국 캘리포니아
+판매·공유를 거부할 권리
+
+---
+
+COPPA, Children's Online Privacy Protection Act
+미국
+13세 미만은 부모 동의 필요
+
+---
+
+PIPA, Personal Information Protection Act
+한국
+14세 미만은 법정대리인 동의, 국외 이전 규율
+
+---
+
+PIPL, Personal Information Protection Law
+중국
+
+---
+
+한국의 아동 조항
+
+개인정보 보호법 제22조의2
+
+법정대리인의 동의를 받는 것에 더해 
+그 동의 여부를 확인할 것까지 요구
+
+---
+
+아동용이 아니어도 적용
+
+버거킹 운영사는 유출 사고 없이도 이 조항 위반으로 
+9억 2,400만 원의 과징금을 받았습니다
+
+---
+
+유니티 서버가 국외에 있다면 한국 플레이어의 이벤트 전송은 국외 이전에 해당할 수 있습니다
+
+근거 조항은 제28조의8
+
+---
+
+수집의 시작과 정지는 
+엔진에 내장된 개발자 데이터 프레임워크 (Developer Data framework)의 
+EndUserConsent API가 결정
+
+동의 상태가 기기에 저장되므로 
+다음 실행부터는 SDK가 그 값을 보고 스스로 켜집니다
+
+---
+
+구 방식: 동의를 확인한 뒤 StartDataCollection()을 직접 호출해야 수집이 시작됩니다. 
+두 방식을 섞어 쓰면 예외가 발생합니다
+
+---
+
+삭제 요청: 순서가 정해져 있어서, 
+동의를 먼저 거부 상태로 바꾼 다음 
+RequestDataDeletion()을 호출합니다.
+
+---
+
+state = EndUserConsent.GetConsentState();
+state.AnalyticsIntent = playerAgreed ? ConsentStatus.Granted : ConsentStatus.Denied;
+EndUserConsent.SetConsentState(state);
+
+---
+
+계측 (instrumentation) 설계
+
+게임 코드 안에 이벤트 기록 호출을 심는 일
+
+state
+어느 순간 게임에서 참인 값들
+
+---
+
+상태는 매 프레임 바뀌지만 
+그걸 전부 기록할 수는 없습니다
+
+계측은 그중 의미 있는 변화만 골라 이벤트로 남기는 일
+
+---
+
+이벤트 데이터의 네 가지 성질
+
+소급 불가: 기록하지 않은 과거는 나중에 얻을 수 없습니다
+
+수정 곤란: 이미 쌓인 이벤트와 이미 배포된 게임 빌드는 고치기 어렵습니다
+
+개인 데이터: 이벤트는 식별자를 통해 플레이어 한 명에게 연결됩니다. 
+법령이 적게 남기라고 요구하는 이유입니다.
+
+곁가지이자 통제 밖: 계측은 게임 본체가 아니고, 
+플레이어의 기기는 개발자가 통제할 수 없습니다.
+
+---
+
+이벤트마다 "이것이 답할 질문과 지표"를 먼저 적습니다
+이 문서가 **계측 계획서 (tracking plan)**입니다
+
+질문 "튜토리얼 어디서 이탈하나" → 지표는 퍼널 
+→ 이벤트 tutorialStepCompleted → 매개변수 stepIndex(정수)
+
+---
+
+사실을 기록하고 해석은 나중에 한다
+
+판단 기준은 바뀌지만 사실은 안 바뀌므로, 
+사실만 있으면 나중에 다른 기준으로 다시 계산할 수 있습니다
+
+---
+
+스키마는 계약이다
+
+스키마와 맞지 않게 보낸 이벤트는 무효로 버려집니다
+커스텀 이벤트는 지울 수 없어서 이름 실수가 대시보드에 계속 남습니다
+
+---
+
+게임 코드가 SDK를 직접 부르지 않고
+계측 계층 (instrumentation layer)이라는 자체 클래스 하나만 부르게 합니다
+
+이름과 자료형의 대응
+동의 확인, 
+도구 교체, 
+모바일 측정 파트너 같은 다른 목적지로의 동시 전송을 
+한곳에서 처리하기 위해
+
+대응 관계를 한곳에서 관리하라고 안내
+
+---
+
+게임 코드는 이 메서드만 안다
+
+public static class GameAnalytics
+{
+    public static void TutorialStepCompleted(int stepIndex)
+}
+
+---
+
+동의가 관문
+
+동의 전에는 어떤 이벤트도 기기를 떠나지 않아야 합니다
+
+매개변수에는 이메일이나 
+자유 입력 문자열처럼 
+개인을 드러내는 값을 넣지 않습니다
+
+---
+
+게임에 무해하다
+
+계측이 실패해도 게임은 멈추지 않아야 합니다
+
+---
+
+계측도 기능이므로 테스트 대상입니다.
+
+개발용과 실서비스용 환경 (environment)을 나눠 쓰고
+검증된 이벤트 정의를 다른 환경으로 복사할 수 있습니다
+
+---
+
+이벤트 매니저에서 최근 24시간의 유효·무효 건수를 확인할 수 있어 
+스키마 불일치를 빨리 잡습니다
+
+---
+
+기기에서 온 값은 조작되거나 유실될 수 있다고 보고
+매출처럼 중요한 사실은 서버에서 확인한 것만 믿습니다
+
+---
+
+삭제는 "없었던 것으로 한다"이므로 과거에 대한 조작
+끄기는 "앞으로 받지 않는다"이므로 미래에 대한 조작
+
+기록 시스템은 미래만 바꿀 수 있게 허용합니다
+
+회계 장부에서 틀린 줄을 지우지 않고 정정하는 줄을 새로 쓰는 것과 같은 원리입니다
+
+---
+
+특정 플레이어의 데이터는 RequestDataDeletion() 호출로 서버에서 지울 수 있습니다
+법령상 권리
+
+---
+
+funnel
+
+순서가 정해진 단계들의 목록
+각 단계까지 도달한 플레이어 수
+
+---
+
+step
+표준 또는 커스텀 이벤트에 매개변수 조건을 붙여 만들고
+퍼널 하나는 그런 단계가 둘 이상 모인 것
+
+---
+
+order
+k단계를 거친 플레이어만 k+1단계에 셀 수 있습니다
+
+---
+
+계수 단위
+이벤트 건수가 아니라 플레이어 수를 셉니다
+기간, 국가, 플랫폼, 버전, 오디언스
+
+---
+
+nₖ는 "k번째 단계에 도달한 플레이어 수"
+
+단계 전환율 (step conversion rate) = nₖ₊₁ ÷ nₖ
+이탈률 (drop-off rate) = 1 − 단계 전환율
+전체 전환율 (overall conversion) = 마지막 단계의 n ÷ n₁
+
+---
+
+순서 조건
+
+k+1단계의 플레이어 집합은 k단계 집합의 부분집합
+
+따라서 n₁ ≥ n₂ ≥ n₃ 
+
+---
+
+단계는 반드시 거치는 지점이어야 합니다
+건너뛸 수 있는 화면을 단계로 넣으면
+
+---
+
+단계 조건은 등호로 서로 겹치지 않게 잡습니다
+
+부등호 조건을 쓰면 한 이벤트가 여러 단계에 동시에 걸려 진행이 드러나지 않는다
+
+진행 위치를 stepIndex 같은 정수 매개변수로 남기는 스키마가 퍼널에 유리
+
+---
+
+어제 설치한 플레이어는 뒤 단계에 갈 시간이 없었으므로, 
+최근 집단을 섞으면 전환율이 실제보다 낮게 나옵니다
+
+모집단을 "충분히 시간이 지난 설치일"로 잡아야 합니다
+
+---
+
+기획: 온보딩 퍼널(튜토리얼, 레벨 진행)
+사업: 결제 퍼널(상점 열기 → 상품 보기 → 구매 완료)
+
+---
+
+마케팅: 획득 퍼널(광고 노출 → 클릭 → 설치 → 첫 실행)
+앞부분은 게임 밖이라 광고 플랫폼과 모바일 측정 파트너의 데이터로 봅니다.
+
+---
+
+이벤트 클래스: 스키마 하나당 클래스 하나를 둡니다
+문자열 이름은 여기에만 나옵니다
+
+public class LevelCompletedEvent : Unity.Services.Analytics.Event
+{
+    public LevelCompletedEvent() : base("levelCompleted") { }
+
+    public int   LevelIndex      { set { SetParameter("levelIndex", value); } }
+    public float DurationSeconds { set { SetParameter("durationSeconds", value); } }
+    public int   AttemptCount    { set { SetParameter("attemptCount", value); } }
+}
+
+---
+
+계측 계층
+
+public interface IGameAnalytics
+public class UnityGameAnalytics : IGameAnalytics
+
+---
+
+public void LevelCompleted(int levelIndex, float durationSeconds, int attemptCount) =>
+    AnalyticsService.Instance.RecordEvent(new LevelCompletedEvent
+    {
+        LevelIndex = levelIndex,
+        DurationSeconds = durationSeconds,
+        AttemptCount = attemptCount
+    });      
+
+---
+
+public class LevelController : MonoBehaviour
+{
+    IGameAnalytics analytics;   // 시작 시 주입받음
+    int levelIndex, attemptCount;
+    float startTime;
+
+    void OnLevelCleared()
+    {
+        analytics.LevelCompleted(levelIndex, Time.time - startTime, attemptCount);
+    }
+}
