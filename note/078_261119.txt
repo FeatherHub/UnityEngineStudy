@@ -1,0 +1,215 @@
+GetDefaultPlayerLoop()
+UnityEngine.CoreModule.dll 디컴파일
+
+플랫폼 전용 노드
+
+---
+
+UnityEngine.UIElementsModule.dll 디컴파일
+UIE-profiler-markers.html
+
+---
+
+PlayerLoop 노드
+Update.ScriptRunBehaviourUpdate
+
+UnityEngine.PlayerLoop 네임스페이스의 빈 struct 타입
+
+---
+
+사용자 callback
+Update(), LateUpdate(), OnCollisionEnter()
+MonoBehaviour 메시지
+
+구현하면 엔진이 특정 노드 안에서 호출
+
+---
+
+UI Toolkit 내부 단계
+
+enum VisualTreeUpdatePhase
+Styles, Layout, Repaint
+
+schedule, GeometryChangedEvent 같은 API로만 간접적으로 닿음
+
+---
+
+PreLateUpdate.ScriptRunBehaviourLateUpdate
+
+---
+
+최상위 노드 Update와 callback Update()
+
+Update()는 Update 노드의 첫 하위 노드 ScriptRunBehaviourUpdate에서만 불립니다. 
+
+Update 노드에는 코루틴, async Task, Timeline도 들어 있습니다.
+
+---
+
+LateUpdate()는 PreLateUpdate의 마지막 하위 노드에서 불립니다.
+
+---
+
+최상위 노드 FixedUpdate는 한 프레임에 0번에서 N번까지 돕니다.
+
+---
+
+TimeUpdate, Initialization, EarlyUpdate, PreUpdate, PreLateUpdate, PostLateUpdate
+와 이름이 같은 callback은 없습니다
+
+---
+
+TimeUpdate
+
+WaitForLastPresentationAndUpdateTime
+이전 프레임의 present를 기다리고 Time 값을 갱신합니다
+
+---
+
+Initialization (7개)
+
+ProfilerStartFrame
+SynchronizeInputs
+
+XREarlyUpdate
+
+AsyncUploadTimeSlicedUpdate
+UpdateCameraMotionVectors
+DirectorSampleTime
+SynchronizeState
+
+---
+
+EarlyUpdate (32개)
+
+연결: PollPlayerConnection, UnityWebRequestUpdate
+
+잡: ExecuteMainThreadJobs
+
+렌더 정리: ClearIntermediateRenderers, PresentBeforeUpdate
+
+비동기 로딩: UpdateAsyncInstantiate, UpdateStreamingManager, UpdateTextureStreamingManager, 
+UpdatePreloading, UpdateContentLoading
+
+입력: ProcessMouseInWindow, UpdateInputManager(레거시 Input 상태 갱신)
+
+스크립트: ScriptRunDelayedStartupFrame
+  로컬 레퍼런스는 Start()를 "스크립트가 활성화된 프레임에서 첫 Update 계열 호출 직전"이라고 설명합니다.
+  ScriptRunDelayedStartupFrame이 그 지연 호출 큐를 처리하는 곳으로 보입니다 (추정)
+  MonoBehaviour callback은 없습니다
+
+---
+
+FixedUpdate (13개): 고정 시간 단계, 프레임당 0~N회
+
+ScriptRunBehaviourFixedUpdate → FixedUpdate()
+
+PhysicsFixedUpdate → 3D 물리 시뮬레이션 다음에 OnCollisionEnter/Stay/Exit(), OnTriggerEnter/Stay/Exit()
+Physics2DFixedUpdate → OnCollisionEnter2D() 같은 2D 버전
+
+LegacyFixedAnimationUpdate, DirectorFixedUpdate… → Animate Physics 모드로 돌리는 애니메이션과 Timeline
+
+
+ScriptRunDelayedFixedFrameRate → WaitForFixedUpdate 코루틴 재개 (추정)
+
+---
+
+PreUpdate (11개): 물리 반영, 입력 배달
+
+PhysicsUpdate, Physics2DUpdate, PhysicsClothUpdate
+
+IMGUISendQueuedEvents → 입력 이벤트로 OnGUI() 호출 (추정)
+
+NewInputUpdate → Input System 패키지 처리
+InputForUIUpdate → UI Toolkit이 쓰는 InputForUI 이벤트를 공급
+
+SendMouseEvents → OnMouseDown(), OnMouseEnter()...
+
+AIUpdate, WindUpdate, UpdateVideo
+
+---
+
+Update (4개): 게임 로직
+
+ScriptRunBehaviourUpdate → Update()
+  UGUI의 EventSystem.Update()도 MonoBehaviour라서 여기서 돕니다
+
+ScriptRunDelayedDynamicFrameRate → 코루틴 재개 (yield return null, WaitForSeconds 등)
+  코루틴의 첫 구간은 StartCoroutine을 부른 바로 그 자리에서 실행
+
+ScriptRunDelayedTasks → UnitySynchronizationContext.ExecuteTasks()
+  async Task continuation이 여기서 이어집니다
+
+DirectorUpdate → Timeline과 PlayableDirector
+
+---
+
+PreLateUpdate (13개)
+
+AIUpdatePostScript 
+DirectorUpdateAnimationBegin 
+LegacyAnimationUpdate 
+DirectorUpdateAnimationEnd 
+DirectorDeferredEvaluate 
+AccessibilityUpdate 
+UIElementsUpdatePanels !!!
+EndGraphicsJobsAfterScriptUpdate 
+ConstraintManagerUpdate 
+ParticleSystemBeginUpdateAll 
+Physics2DLateUpdate 
+PhysicsLateUpdate 
+ScriptRunBehaviourLateUpdate !!!
+
+---
+
+DirectorUpdateAnimationBegin~End → Animator 평가
+  OnAnimatorMove(), OnAnimatorIK(), AnimationEvent가 여기서 불립니다
+
+UIElementsUpdatePanels → UI Toolkit 1단계
+
+LateUpdate()
+  마지막에 돌기 때문에 
+  애니메이션과 UI Toolkit 레이아웃이 끝난 뒤입니다.
+
+---
+
+PostLateUpdate (46개): 렌더 준비, 렌더, present, 프레임 정
+
+UI Toolkit 2단계: UIElementsRepaintPanels
+
+---
+
+PreUpdate.InputForUIUpdate              ← InputForUI 입력 이벤트 수집
+
+PreLateUpdate.UIElementsUpdatePanels    → UIElementsRuntimeUtility.UpdatePanels()
+  RemoveUnusedPanels 
+  패널마다 RuntimePanel.Update()
+  PanelSettings.ApplyPanelSettings() (스케일, 해상도)
+  Styles
+  Layout(GeometryChangedEvent 발송)
+  TransformClip
+
+PreLateUpdate.ScriptRunBehaviourLateUpdate → LateUpdate() (UIDocument.LateUpdate()도 여기)
+ 
+
+---
+
+PostLateUpdate.UIElementsRepaintPanels
+  UIElementsRuntimeUtility.RepaintPanels()
+  패널마다 Panel.Repaint()        
+     계층이 바뀌었으면 TickSchedulingUpdaters를 한 번 
+       ViewData → Styles → Layout → TransformClip
+     Repaint(렌더 데이터·메시 생성, generateVisualContent 호출)
+
+---
+
+렌더링 중 UI.RenderOverlays             ← Canvas.externBeginRenderOverlays / externRenderOverlaysBefore / externEndRenderOverlays
+  Panel.Render()
+  UIR.DrawChain   (실제 GPU 드로우)
+
+---
+
+targetTexture 패널: RenderOffscreenPanels 콜백으로 따로 그립니다
+batchmode에서는 UIElementsRenderBatchModeOffscreen 노드가 이 일을 합니다
+
+---
