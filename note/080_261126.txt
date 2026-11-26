@@ -1,0 +1,328 @@
+Unity는 2026-03-26에 종료를 발표했다
+
+direct demand는 2026-04-30에 끝났고
+ironSource Exchange도 2026-12-31에 광고 공급을 멈춘다
+
+---
+
+com.unity.services.levelplay 9.6.0
+Unity Ads adapter도 기본으로 설치
+안에 든 native SDK는 9.8.0(2026-11-10)
+
+---
+
+IronSource.Agent.* 예제는 9.0에서 제거된 API
+
+---
+
+내 게임
+광고 노출 자리를 판다
+
+Ad network
+광고주의 돈과 creative를 가지고 있다
+
+Mediation
+노출마다 어느 network에 자리를 줄지 정한다
+bidding
+
+---
+
+호출은 아래로, event는 위로
+
+---
+
+통신, auction, 동영상 재생은 모두 native에서 일어난다
+
+network SDK가 Java/Kotlin과 ObjC/Swift로만 나오기 때문
+
+---
+
+Bridge는 Unity의 interop 통로 두 개를 쓴다
+
+native callback은 native thread에서 올라온다
+
+Unity API는 main thread에서만 호출할 수 있으므로 
+누군가 이 callback을 main thread로 옮겨야 한다
+
+SDK가 이 dispatch를 대신 해 준다
+
+---
+
+App Key
+앱 식별자. 플랫폼마다 따로
+LevelPlay.Init(appKey)
+
+---
+
+Ad Unit
+format과 설정의 묶음
+load 단위
+new LevelPlayRewardedAd(adUnitId)
+
+---
+
+Placement
+앱 안의 노출 지점 이름
+show 단위
+reporting, capping, reward 설정에 쓰인다
+ShowAd("double_coins")
+
+---
+
+Network instance
+각 network 계정의 키와 ID
+init 때 서버가 내려준다
+
+---
+
+ad unit은 "무엇을 미리 받아 둘까"를 정하고
+placement는 "어디서 썼나"를 기록한다
+
+---
+
+rewarded ad unit 하나로 
+"부활"과 "코인 2배" 두 placement를 모두 소비할 수 있다
+
+---
+
+구독을 Init 호출보다 먼저 한다
+
+LevelPlay.OnInitSuccess += 
+LevelPlay.OnInitFailed  +=
+
+LevelPlay.Init(AppKey)
+
+---
+
+생성과 구독: OnInitSuccess 이후에만 한다
+
+rewarded = new LevelPlayRewardedAd(RewardedUnitId);
+
+rewarded.OnAdLoaded     +=
+rewarded.OnAdRewarded   += _ => Reward()
+rewarded.OnAdClosed     += _ => rewarded.LoadAd()  // 다음 광고를 미리 받는다
+
+rewarded.LoadAd()
+
+---
+
+OnClickDoubleCoins()
+  if (rewarded != null && rewarded.IsAdReady())
+    rewarded.ShowAd("double_coins"); // placement 이름
+
+---
+
+서버 config(켜진 network, instance 키) 없이는 adapter를 깨울 수 없다
+
+---
+
+Load와 Show가 나뉜다
+
+auction과 동영상 다운로드에 몇 초가 걸리므로 미리 받아 둬야 한다
+
+---
+
+전부 event 기반이다
+
+둘 다 네트워크 왕복이라 앱은 결과가 언제 올지 모른다
+
+---
+
+객체는 재사용
+광고는 한 번 쓰고 끝
+
+노출 한 번에 auction 결과 하나가 소비된다
+show 후 다시 LoadAd 해야 한다
+
+---
+
+OnAdRewarded와 OnAdClosed의 순서
+SDK가 순서를 보장하지 않으니 코드가 대비해야 한다
+
+---
+
+event가 구독보다 먼저 오면 놓친다
+callback이 다음 frame에 올 수도 있어서
+
+---
+
+instance event라서 객체가 있어야 +=를 할 수 있다
+없으면 NullReferenceException
+
+---
+
+set the listener before loading
+
+---
+
+Placement: capping과 pacing 판정 단위
+LevelPlayRewardedAd.IsPlacementCapped(name)
+
+---
+
+이 ad unit에 어떤 network가 붙고 
+각 network의 instance 키가 무엇인지는 
+init 때 서버에서 내려온다
+
+---
+
+관습
+다들 그렇게 하지만 안 지켜도 동작
+
+문서가 "must"로 요구하는 API contract
+어겼을 때의 동작은 문서에 없다
+어겼을 때 동작이 정의되지 않은 규칙
+
+---
+
+Load와 Show 분리
+
+auction(여러 network에 bid 요청)과 
+creative 다운로드(동영상은 수 MB)에 몇 초가 걸린다
+
+---
+
+OnAdRewarded와 OnAdClosed
+
+두 event는 서로 다른 출처에서 온다
+
+보상은 network의 완료 신호에서,
+닫힘은 UI dismiss에서 온다
+
+---
+
+UI dismiss
+
+띄워 둔 화면을 닫고 원래 화면으로 돌아가는 동작
+사용자가 X나 뒤로 가기로 전체 화면 광고를 닫는 순간
+
+---
+
+화면을 위에 띄우는 present와 짝을 이루는 UI 용어
+
+rewarded.OnAdClosed
+onAdDismissedFullScreenContent()
+[vc dismissViewControllerAnimated:YES completion:nil]
+
+---
+
+OnAdRewarded
+network가 보상 조건을 채웠다고 판정함 (예: 영상 끝까지 시청)
+network의 보상 로직
+
+---
+
+OnAdClosed
+광고 화면 dismiss
+화면 lifecycle (사용자 조작)
+
+---
+
+Unity Ads: 광고가 끝날 때 onUnityAdsShowComplete(placementId, state) 하나만 오고, 
+state가 COMPLETED인지로 보상 여부를 알려 준다. 
+
+이걸 LevelPlay의 Rewarded와 Closed 두 event로 나눠 올릴 때 
+어떤 순서로 보낼지는 adapter 구현이 정한다
+
+mediation은 이런 network 20여 개를 한 API로 묶는다
+그러니 순서를 하나로 보장할 수 없고, 
+
+그래서 문서도 "asynchronous"라고만 하고 
+순서를 약속하지 않는다.
+
+---
+
+설치 구조: native SDK가 빌드에 들어가는 길
+
+---
+
+Unity가 직접 컴파일하는 건 C#뿐
+
+native SDK(.aar, iOS framework)는 경로가 다르다. 
+
+Unity가 export한 
+Gradle 프로젝트와 
+Xcode 프로젝트 안에서 
+Gradle과 
+CocoaPods가 받아서 링크해야 한다
+
+---
+
+무엇이 필요한지 선언한다
+그 선언을 Gradle과 CocoaPods가 알아듣는 형태로 번역한다
+버전 호환을 관리한다
+
+---
+
+Packages/manifest.json
+
+"com.unity.services.levelplay": "9.6.0"
+
+---
+
+Network Manager
+
+버전 표를 보고 Dependencies.xml을 받아 둔다
+Assets/LevelPlay/Editor/ISUnityAdsAdapterDependencies.xml
+
+---
+
+MDR (Mobile Dependency Resolver)
+
+xml을 Gradle과 CocoaPods 선언으로 번역
+
+implementation 'com.unity3d.ads-mediation:unityads-adapter:5.17.0'
+
+---
+
+MobileDependencyResolverInstaller가 S3에서 .unitypackage로 받아서 import한다
+
+---
+
+Google.VersionHandler
+
+Google EDM4U(External Dependency Manager for Unity)
+
+---
+
+UpmLevelPlaySdkInstaller
+
+Package Manager의 registeredPackages event를 구독
+LevelPlay 패키지가 추가되거나 버전이 바뀌면 다음 코드가 실행된다
+
+await m_SdkInstaller.PreInstallAsync();                 // 원격 LevelPlayVersions.json 받기
+
+await m_SdkInstaller.InstallLatestIronSourceSdkAsync(); // native SDK의 xml
+
+await m_SdkInstaller.InstallUnityAdsAdapterAsync();     // Unity Ads adapter의 xml
+
+---
+
+Editor 스크립트가 xml 두 개를 자동으로 받아 오는 것뿐이다
+
+---
+
+<androidPackage spec="com.unity3d.ads-mediation:unityads-adapter:5.17.0"/>
+
+Gradle의 implementation 한 줄이 된다
+
+---
+
+<iosPod name="IronSourceUnityAdsAdapter" version="5.14.0.0"/>
+
+Podfile의 pod 한 줄이 된다
+SPM을 쓰는 경우 이 pod 대신 쓸 Swift package를 적어 둔 대체 선언
+
+---
+
+[Package Manager]   add com.unity.services.levelplay
+        │  registeredPackages event
+[Network Manager]   versions JSON → *Dependencies.xml → Assets/LevelPlay/Editor/
+        │
+[MDR resolver]      xml → mainTemplate.gradle (Android) / Podfile (iOS)
+        │
+[Unity build]       export Gradle / Xcode project → post-process Manifest, Info.plist
+        │
+[Gradle/CocoaPods]  download .aar / pods (+ transitive Unity Ads SDK) → link → AAB / IPA
+
+---
